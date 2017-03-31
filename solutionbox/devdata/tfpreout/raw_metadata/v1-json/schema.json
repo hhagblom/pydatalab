@@ -1,0 +1,125 @@
+{
+  "feature": [
+    {
+      "domain": {
+        "strings": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "key",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "BYTES"
+    },
+    {
+      "domain": {
+        "floats": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "num1",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "FLOAT"
+    },
+    {
+      "domain": {
+        "floats": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "num2",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "FLOAT"
+    },
+    {
+      "domain": {
+        "floats": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "num3",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "FLOAT"
+    },
+    {
+      "domain": {
+        "strings": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "str1",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "BYTES"
+    },
+    {
+      "domain": {
+        "strings": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "str2",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "BYTES"
+    },
+    {
+      "domain": {
+        "strings": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "str3",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "BYTES"
+    },
+    {
+      "domain": {
+        "strings": {}
+      },
+      "fixedShape": {
+        "axis": []
+      },
+      "name": "target",
+      "parsingOptions": {
+        "tfOptions": {
+          "fixedLenFeature": {}
+        }
+      },
+      "type": "BYTES"
+    }
+  ],
+  "sparseFeature": []
+}
