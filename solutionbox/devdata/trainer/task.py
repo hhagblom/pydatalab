@@ -168,6 +168,7 @@ def get_experiment_fn(args):
   # Return a function to create an Experiment.
   return get_experiment
 
+ #python -m trainer/t\--job-dir TOUT --preprocess-output-dir x --transforms-file y --model-type dnn_classification --top-n 3
 
 def parse_arguments(argv):
   """Parse the command line arguments."""
@@ -178,20 +179,20 @@ def parse_arguments(argv):
 
   # I/O file parameters
   parser.add_argument('--train-data-paths', type=str, action='append',
-                      required=True)
+                      default='../train_csv_data.csv')
   parser.add_argument('--eval-data-paths', type=str, action='append',
-                      required=True)
-  parser.add_argument('--job-dir', type=str, required=True)
+                      default='../eval_csv_data.csv')
+  parser.add_argument('--job-dir', type=str, default='../TOUT')
   parser.add_argument('--preprocess-output-dir',
                       type=str,
-                      required=True,
+                      required=False,
                       help=('Output folder of preprocessing. Should contain the'
                             ' schema file, and numerical stats and vocab files.'
                             ' Path must be on GCS if running'
                             ' cloud training.'))
   parser.add_argument('--transforms-file',
                       type=str,
-                      required=True,
+                      required=False,
                       help=('File describing the the transforms to apply on '
                             'each column'))
 
@@ -206,7 +207,7 @@ def parse_arguments(argv):
   parser.add_argument('--model-type',
                       choices=['linear_classification', 'linear_regression',
                                'dnn_classification', 'dnn_regression'],
-                      required=True)
+                      required=False)
   parser.add_argument('--top-n',
                       type=int,
                       default=1,

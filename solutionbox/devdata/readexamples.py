@@ -10,8 +10,8 @@ import sys
 #from . import util
 import tensorflow as tf
 
-from tensorflow_transform.saved import input_fn_maker
-from tensorflow_transform.tf_metadata import metadata_io
+#from tensorflow_transform.saved import input_fn_maker
+#from tensorflow_transform.tf_metadata import metadata_io
 
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.lib.io import file_io
@@ -24,30 +24,32 @@ def gzip_reader_fn():
 
 def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
   filename_queue = tf.train.string_input_producer(
-      data_paths, num_epochs=num_epochs, shuffle=shuffle)
+      [data_paths], num_epochs=num_epochs, shuffle=shuffle)
+  print('filename_queue')
+  print(filename_queue)
 
 
 
   #reader = tf.TextLineReader(skip_header_lines=skip_header_lines)
   reader = gzip_reader_fn()
-
+  #_, rows = reader.read(filename_queue)
   _, rows = reader.read_up_to(filename_queue, num_records=batch_size)
 
   # Parse the CSV File
   features =  {
-  	'key': tf.FixedLenFeature(shape=[1], dtype=tf.string), 
-    'target': tf.FixedLenFeature(shape=[1], dtype=tf.string),
-    'num1': tf.FixedLenFeature(shape=[1], dtype=tf.float64),
-    'num2': tf.FixedLenFeature(shape=[1], dtype=tf.float64),
-    'num3': tf.FixedLenFeature(shape=[1], dtype=tf.float64),
-    'str1': tf.FixedLenFeature(shape=[1], dtype=tf.string),
-    'str2': tf.FixedLenFeature(shape=[1], dtype=tf.string),
-    'str3': tf.FixedLenFeature(shape=[1], dtype=tf.string),
+  	'key': tf.FixedLenFeature([], dtype=tf.string), 
+    'target': tf.FixedLenFeature([], dtype=tf.int64),
+    'num1': tf.FixedLenFeature([], dtype=tf.float32),
+    'num2': tf.FixedLenFeature([], dtype=tf.float32),
+    'num3': tf.FixedLenFeature([], dtype=tf.float32),
+    'str1': tf.FixedLenFeature([], dtype=tf.int64),
+    'str2': tf.FixedLenFeature([], dtype=tf.int64),
+    'str3': tf.FixedLenFeature([], dtype=tf.int64),
   }
   features = tf.parse_example(rows, features=features)
 
 
-  return features, features.pop('target')	
+  return rows, features, features.pop('target')	
 
 def xxxxget_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
   """Builds input layer for training."""
@@ -71,14 +73,22 @@ def xxxxget_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
       num_epochs=num_epochs)
 
 
+
+
+
 coord = tf.train.Coordinator(clean_stop_exception_types=(
         tf.errors.CancelledError, tf.errors.OutOfRangeError))
 
-features, labels = get_reader_input_fn('./train_csv_data.csv', 10, False, None)()
+# make ()
+rows, features, labels = get_reader_input_fn('tfpreout/features_eval-00000-of-00001.tfrecord.gz', 10, False, None)
+
 with tf.Session() as sess:
   sess.run( [tf.tables_initializer(),
         tf.local_variables_initializer(), tf.global_variables_initializer()])
   tf.train.start_queue_runners(coord=coord, sess=sess)
 
-  ans = sess.run(features)
-  print(features)
+  ans = sess.run(rows)
+  print(ans)
+
+  ##ans = sess.run(features)
+  #print(ans)
