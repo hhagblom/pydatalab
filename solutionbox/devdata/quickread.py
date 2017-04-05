@@ -6,7 +6,8 @@ record_iterator = tf.python_io.tf_record_iterator(path='tfpreout/features_eval-0
 
 count = 0
 for string_record in record_iterator:
-    
+    print('string_record')
+    print('%r' % string_record)
     example = tf.train.Example()
     example.ParseFromString(string_record)
     print(example)

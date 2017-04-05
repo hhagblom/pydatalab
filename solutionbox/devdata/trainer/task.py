@@ -16,6 +16,7 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import math
 import os
 import re
 import sys
@@ -26,12 +27,54 @@ import sys
 
 #from . import util
 import tensorflow as tf
+from tensorflow.python.lib.io import file_io
 
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.tf_metadata import metadata_io
+from tensorflow_transform.saved import saved_transform_io
+
+
+
+from tensorflow.python.ops import variables
+from tensorflow.contrib.framework.python.ops import variables as contrib_variables
+from tensorflow.contrib.learn.python.learn.estimators import model_fn as model_fn_lib
+from tensorflow.python.training import saver
+from tensorflow.python.ops import data_flow_ops
+from tensorflow.python.framework import ops
+from tensorflow.python.client import session as tf_session
+from tensorflow.python.saved_model import builder as saved_model_builder
+from tensorflow.python.saved_model import tag_constants
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.util import compat
+from tensorflow.python.platform import gfile
+from tensorflow.python.saved_model import signature_def_utils
+
+
 
 from tensorflow.contrib.learn.python.learn import learn_runner
-from tensorflow.python.lib.io import file_io
+from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
+from tensorflow.contrib.learn.python.learn import export_strategy
+from tensorflow.contrib.learn.python.learn.utils import (
+    saved_model_export_utils)
+
+
+def _recursive_copy(src_dir, dest_dir):
+  """Copy the contents of src_dir into the folder dest_dir.
+  Args:
+    src_dir: gsc or local path.
+    dest_dir: gcs or local path.
+  When called, dest_dir should exist.
+  """
+
+  file_io.recursive_create_dir(dest_dir)
+  for file_name in file_io.list_directory(src_dir):
+    old_path = os.path.join(src_dir, file_name)
+    new_path = os.path.join(dest_dir, file_name)
+
+    if file_io.is_directory(old_path):
+      _recursive_copy(old_path, new_path)
+    else:
+      file_io.copy(old_path, new_path, overwrite=True)
 
 
 def gzip_reader_fn():
@@ -41,12 +84,12 @@ def gzip_reader_fn():
 def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
   """Builds input layer for training."""
   transformed_metadata = metadata_io.read_metadata(
-        'tfpreout/transformed_metadata')
+        '../tfpreout/transformed_metadata')
 
-  print('tf metadata')
-  print(transformed_metadata)
-  print(dir(transformed_metadata))
-  print(dir(transformed_metadata.schema))
+  #print('tf metadata')
+  #print(transformed_metadata)
+  #print(dir(transformed_metadata))
+  #print(dir(transformed_metadata.schema))
   return input_fn_maker.build_training_input_fn(
       metadata=transformed_metadata,
       file_pattern=data_paths,
@@ -58,32 +101,6 @@ def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
       queue_capacity=batch_size * 2,
       randomize_input=shuffle,
       num_epochs=num_epochs)
-  # def get_input_features():
-  #   """Read the input features from the given data paths."""
-  #   _, examples = util.read_examples(
-  #       input_files=data_paths,
-  #       batch_size=batch_size,
-  #       shuffle=shuffle,
-  #       num_epochs=num_epochs)
-  #   features = util.parse_example_tensor(examples=examples,
-  #                                        train_config=train_config,
-  #                                        keep_target=True)
-
-  #   target_name = train_config['target_column']
-  #   target = features.pop(target_name)
-  #   features, target = util.preprocess_input(
-  #       features=features,
-  #       target=target,
-  #       train_config=train_config,
-  #       preprocess_output_dir=preprocess_output_dir,
-  #       model_type=model_type)
-
-  #   return features, target
-
-  # # Return a function to input the feaures into the model from a data path.
-  # return get_input_features
-
-
 
 def get_estimator(train_root, args):
 
@@ -99,9 +116,6 @@ def get_estimator(train_root, args):
       tf.contrib.layers.embedding_column(s2, 2),
       tf.contrib.layers.embedding_column(s3, 2),
   ]
-
-
-
   config = tf.contrib.learn.RunConfig(
       save_checkpoints_secs=args.save_checkpoints_secs)
   estimator = tf.contrib.learn.DNNClassifier(
@@ -113,6 +127,141 @@ def get_estimator(train_root, args):
         optimizer=tf.train.AdamOptimizer(
             args.learning_rate, epsilon=args.epsilon))
   return estimator
+
+
+def make_output_tensors(input_ops, model_fn_ops, keep_target=True):
+
+
+  #print('make_output_tensors')
+  #print('input_ops.features', input_ops.features)
+  #print('input_ops.labels', input_ops.labels)
+  #print('input_ops.default_inputs', input_ops.default_inputs)
+  #print(model_fn_ops)
+  #print(model_fn_ops.predictions)
+  top_n=3
+
+  outputs = {}
+  outputs['key'] = tf.squeeze(input_ops.features['key'])
+  if keep_target:
+      outputs['target_from_input'] = tf.squeeze(input_ops.features['target'])
+
+  # TODO(brandondutra): get the score of the target label too.
+  probabilities = model_fn_ops.predictions['probabilities']
+
+  # get top k labels and their scores.
+  (top_k_values, top_k_indices) = tf.nn.top_k(probabilities, k=top_n)
+  #top_k_labels = table.lookup(tf.to_int64(top_k_indices))
+  top_k_labels = top_k_indices
+
+  # Write the top_k values using 2*top_k columns.
+  num_digits = int(math.ceil(math.log(top_n, 10)))
+  if num_digits == 0:
+    num_digits = 1
+  for i in range(0, top_n):
+    # Pad i based on the size of k. So if k = 100, i = 23 -> i = '023'. This
+    # makes sorting the columns easy.
+    padded_i = str(i + 1).zfill(num_digits)
+
+    label_alias = 'top_n_label_%s' % padded_i
+
+    label_tensor_name = (tf.squeeze(
+        tf.slice(top_k_labels, [0, i], [tf.shape(top_k_labels)[0], 1])))
+
+    score_alias = 'top_n_score_%s' % padded_i
+
+    score_tensor_name = (tf.squeeze(
+        tf.slice(top_k_values,
+                 [0, i],
+                 [tf.shape(top_k_values)[0], 1])))
+
+    outputs.update({label_alias: label_tensor_name,
+                    score_alias: score_tensor_name})
+
+  return outputs
+
+
+
+
+def my_make_export_strategy(serving_input_fn, keep_target, job_dir):
+  def export_fn(estimator, export_dir_base, checkpoint_path=None, eval_result=None):
+    with ops.Graph().as_default() as g:
+      contrib_variables.create_global_step(g)
+
+      input_ops = serving_input_fn()
+      model_fn_ops = estimator._call_model_fn(input_ops.features,
+                                              None,
+                                              model_fn_lib.ModeKeys.INFER)
+      output_fetch_tensors = make_output_tensors(
+          input_ops=input_ops,
+          model_fn_ops=model_fn_ops,
+          keep_target=keep_target)
+
+      signature_def_map = {
+        'serving_default': signature_def_utils.predict_signature_def(input_ops.default_inputs,
+                                                                     output_fetch_tensors)
+      }
+
+      if not checkpoint_path:
+        # Locate the latest checkpoint
+        checkpoint_path = saver.latest_checkpoint(estimator._model_dir)
+      if not checkpoint_path:
+        raise NotFittedError("Couldn't find trained model at %s."
+                             % estimator._model_dir)
+
+      export_dir = saved_model_export_utils.get_timestamped_export_dir(
+          export_dir_base)
+
+      with tf_session.Session('') as session:
+        # variables.initialize_local_variables()
+        variables.local_variables_initializer()
+        data_flow_ops.tables_initializer()
+        saver_for_restore = saver.Saver(
+            variables.global_variables(),
+            sharded=True)
+        saver_for_restore.restore(session, checkpoint_path)
+
+        init_op = control_flow_ops.group(
+            variables.local_variables_initializer(),
+            data_flow_ops.tables_initializer())
+
+        # Perform the export
+        builder = saved_model_builder.SavedModelBuilder(export_dir)
+        builder.add_meta_graph_and_variables(
+            session, [tag_constants.SERVING],
+            signature_def_map=signature_def_map,
+            assets_collection=ops.get_collection(
+                ops.GraphKeys.ASSET_FILEPATHS),
+            legacy_init_op=init_op)
+        builder.save(False)
+
+      # Add the extra assets
+      #if assets_extra:
+      #....
+
+    # only keep the last 3 models
+    saved_model_export_utils.garbage_collect_exports(
+        export_dir_base,
+        exports_to_keep=3)
+
+    # save the last model to the model folder.
+    # export_dir_base = A/B/intermediate_models/
+    if keep_target:
+      final_dir = os.path.join(job_dir, 'evaluation_model')
+    else:
+      final_dir = os.path.join(job_dir, 'model')
+    if file_io.is_directory(final_dir):
+      file_io.delete_recursively(final_dir)
+    file_io.recursive_create_dir(final_dir)
+    _recursive_copy(export_dir, final_dir)
+
+    return export_dir
+
+  if keep_target:
+    intermediate_dir = 'intermediate_evaluation_models'
+  else:
+    intermediate_dir = 'intermediate_prediction_models'
+
+  return export_strategy.ExportStrategy(intermediate_dir, export_fn)  
 
 def get_experiment_fn(args):
   """Builds the experiment function for learn_runner.run.
@@ -130,17 +279,24 @@ def get_experiment_fn(args):
     estimator = get_estimator(output_dir, args)
 
     transformed_metadata = metadata_io.read_metadata(
-        'tfpreout/transformed_metadata')
-    raw_metadata = metadata_io.read_metadata('tfpreout/raw_metadata')
+        '../tfpreout/transformed_metadata')
+    raw_metadata = metadata_io.read_metadata('../tfpreout/raw_metadata')
     serving_input_fn = (
-        input_fn_maker.build_parsing_transforming_serving_input_fn(
+        input_fn_maker.build_default_transforming_serving_input_fn(  #input json string
             raw_metadata,
-            'tfpreout/transform_fn',
-            raw_label_keys=['target']))
-    export_strategy = tf.contrib.learn.utils.make_export_strategy(
+            '../tfpreout/transform_fn',
+            raw_label_keys=['target']))    
+    #serving_input_fn = (
+    #    input_fn_maker.build_parsing_transforming_serving_input_fn(  # input is tf.example string
+    #        raw_metadata,
+    #        '../tfpreout/transform_fn',
+    #        raw_label_keys=['target']))
+    export_strategy_notarget = tf.contrib.learn.utils.make_export_strategy(
         serving_input_fn, exports_to_keep=5,
         default_output_alternative_key=None)
-
+    export_strategy_target = my_make_export_strategy(serving_input_fn, keep_target=True, job_dir=args.job_dir)
+    #export_strategy_notarget = my_make_export_strategy(serving_input_fn, keep_target=False, job_dir=args.job_dir)
+    #export_strategy = my_make_export_strategy(serving_input_fn, keep_target=True)
 
 
     input_reader_for_train = get_reader_input_fn(
@@ -160,7 +316,7 @@ def get_experiment_fn(args):
         train_input_fn=input_reader_for_train,
         eval_input_fn=input_reader_for_eval,
         train_steps=args.max_steps,
-        export_strategies=[export_strategy],
+        export_strategies=[export_strategy_target, export_strategy_notarget],
         min_eval_frequency=args.min_eval_frequency,
         eval_steps=None,
     )
@@ -179,9 +335,9 @@ def parse_arguments(argv):
 
   # I/O file parameters
   parser.add_argument('--train-data-paths', type=str, action='append',
-                      default='../train_csv_data.csv')
+                      default='../tfpreout/features_train-00000-of-00001.tfrecord.gz')
   parser.add_argument('--eval-data-paths', type=str, action='append',
-                      default='../eval_csv_data.csv')
+                      default='../tfpreout/features_eval-00000-of-00001.tfrecord.gz')
   parser.add_argument('--job-dir', type=str, default='../TOUT')
   parser.add_argument('--preprocess-output-dir',
                       type=str,
@@ -215,7 +371,7 @@ def parse_arguments(argv):
                             'will contain the labels and scores for the top '
                             'n classes.'))
   # Training input parameters
-  parser.add_argument('--max-steps', type=int, default=5000,
+  parser.add_argument('--max-steps', type=int, default=250,
                       help='Maximum number of training steps to perform.')
   parser.add_argument('--num-epochs',
                       type=int,

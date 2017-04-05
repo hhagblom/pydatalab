@@ -10,8 +10,8 @@ import sys
 #from . import util
 import tensorflow as tf
 
-#from tensorflow_transform.saved import input_fn_maker
-#from tensorflow_transform.tf_metadata import metadata_io
+from tensorflow_transform.saved import input_fn_maker
+from tensorflow_transform.tf_metadata import metadata_io
 
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.lib.io import file_io
@@ -22,7 +22,7 @@ def gzip_reader_fn():
       compression_type=tf.python_io.TFRecordCompressionType.GZIP))
 
 
-def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
+def basic_get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
   filename_queue = tf.train.string_input_producer(
       [data_paths], num_epochs=num_epochs, shuffle=shuffle)
   print('filename_queue')
@@ -51,7 +51,7 @@ def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
 
   return rows, features, features.pop('target')	
 
-def xxxxget_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
+def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
   """Builds input layer for training."""
   transformed_metadata = metadata_io.read_metadata(
         'tfpreout/transformed_metadata')
@@ -80,15 +80,12 @@ coord = tf.train.Coordinator(clean_stop_exception_types=(
         tf.errors.CancelledError, tf.errors.OutOfRangeError))
 
 # make ()
-rows, features, labels = get_reader_input_fn('tfpreout/features_eval-00000-of-00001.tfrecord.gz', 10, False, None)
+features, labels = get_reader_input_fn('tfpreout/features_eval-00000-of-00001.tfrecord.gz', 10, False, None)()
 
 with tf.Session() as sess:
   sess.run( [tf.tables_initializer(),
         tf.local_variables_initializer(), tf.global_variables_initializer()])
   tf.train.start_queue_runners(coord=coord, sess=sess)
 
-  ans = sess.run(rows)
+  ans = sess.run(features)
   print(ans)
-
-  ##ans = sess.run(features)
-  #print(ans)

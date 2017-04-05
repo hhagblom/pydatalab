@@ -70,7 +70,7 @@ def parse_arguments(argv):
       default='eval_csv_data.csv',
       help='Data to encode as evaluation features.')
   parser.add_argument(
-      '--predict_data', help='Data to encode as prediction features.')
+      '--predict_data', default='predict_csv_data.csv')
   parser.add_argument(
       '--output_dir',
       default='tfpreout',
@@ -95,9 +95,9 @@ def make_input_schema(mode=tf.contrib.learn.ModeKeys.TRAIN):
   result['key'] = tf.FixedLenFeature(shape=[], dtype=tf.string)
   if mode == tf.contrib.learn.ModeKeys.TRAIN:
     result['target'] = tf.FixedLenFeature(shape=[], dtype=tf.string)
-  result['num1'] = tf.FixedLenFeature(shape=[], dtype=tf.float64)
-  result['num2'] = tf.FixedLenFeature(shape=[], dtype=tf.float64)
-  result['num3'] = tf.FixedLenFeature(shape=[], dtype=tf.float64)
+  result['num1'] = tf.FixedLenFeature(shape=[], dtype=tf.float32)
+  result['num2'] = tf.FixedLenFeature(shape=[], dtype=tf.float32)
+  result['num3'] = tf.FixedLenFeature(shape=[], dtype=tf.float32)
   result['str1'] = tf.FixedLenFeature(shape=[], dtype=tf.string)
   result['str2'] = tf.FixedLenFeature(shape=[], dtype=tf.string)
   result['str3'] = tf.FixedLenFeature(shape=[], dtype=tf.string)
@@ -217,8 +217,8 @@ def preprocess(pipeline, training_data, eval_data, predict_data, output_dir):
 
   if predict_data:
     predict_mode = tf.contrib.learn.ModeKeys.INFER
-    predict_schema = criteo.make_input_schema(mode=predict_mode)
-    tsv_coder = criteo.make_tsv_coder(predict_schema, mode=predict_mode)
+    predict_schema = make_input_schema(mode=predict_mode)
+    tsv_coder = make_tsv_coder(predict_schema, mode=predict_mode)
     predict_coder = coders.ExampleProtoCoder(predict_schema)
     serialized_examples = (
         pipeline
@@ -237,6 +237,23 @@ def preprocess(pipeline, training_data, eval_data, predict_data, output_dir):
              os.path.join(output_dir,
                           TRANSFORMED_PREDICT_DATA_FILE_PREFIX),
              file_name_suffix='.txt'))
+
+
+    predict_mode = tf.contrib.learn.ModeKeys.TRAIN
+    predict_schema = make_input_schema(mode=predict_mode)
+    tsv_coder = make_tsv_coder(predict_schema, mode=predict_mode)
+    predict_coder = coders.ExampleProtoCoder(predict_schema)
+    serialized_examples = (
+        pipeline
+        | 'ReadPredictData2' >> beam.io.ReadFromText(eval_data)
+        | 'ParsePredictCsv2' >> beam.Map(tsv_coder.decode)
+        # TODO(b/35194257) Obviate the need for this explicit serialization.
+        | 'EncodePredictData2' >> beam.Map(predict_coder.encode))
+    _ = (serialized_examples
+         | 'WritePredictDataAsTFRecord2' >> beam.io.WriteToTFRecord(
+             os.path.join(output_dir,
+                          'raw_eval'),
+             file_name_suffix='.tfrecord.gz'))
 
 
 def _encode_as_b64_json(serialized_example):
