@@ -1,0 +1,26 @@
+import tensorflow as tf
+
+sess = tf.InteractiveSession()
+
+
+all_words=['hello', 'world', 'blue', 'green', '']
+table = tf.contrib.lookup.string_to_index_table_from_tensor(all_words)
+table.init.run()
+
+l = tf.decode_csv(['hello world,2', 'blue green green,4', 'hello blue blue blue,8'],  [[''],[]])
+words = l[0]
+words_dim = tf.expand_dims(l[0], axis=-1)
+
+ss = tf.string_split(words)
+table.lookup(ss).eval()
+
+l2 = tf.decode_csv(['hello', 'hello', 'blue'],  [['']])
+one_word = l2[0]
+one_word_dim = tf.expand_dims(l2[0], axis=-1)
+nums = table.lookup(one_word)
+nums_dim = table.lookup(one_word_dim)
+
+
+nums.eval()
+nums_dim.eval()
+
