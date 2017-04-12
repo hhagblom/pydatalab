@@ -7,7 +7,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "key",
+      "name": "keyex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -22,7 +22,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "num1",
+      "name": "num1ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -37,7 +37,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "num2",
+      "name": "num2ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -52,7 +52,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "num3",
+      "name": "num3ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -71,7 +71,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "str1",
+      "name": "str1ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -90,7 +90,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "str2",
+      "name": "str2ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -109,7 +109,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "str3",
+      "name": "str3ex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}
@@ -128,7 +128,7 @@
       "fixedShape": {
         "axis": []
       },
-      "name": "target",
+      "name": "targetex",
       "parsingOptions": {
         "tfOptions": {
           "fixedLenFeature": {}

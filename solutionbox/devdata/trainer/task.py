@@ -94,9 +94,9 @@ def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
       metadata=transformed_metadata,
       file_pattern=data_paths,
       training_batch_size=batch_size,
-      label_keys=['target'],
+      label_keys=['targetex'],
       reader=gzip_reader_fn,
-      key_feature_name='key',
+      key_feature_name='keyex',
       reader_num_threads=4,
       queue_capacity=batch_size * 2,
       randomize_input=shuffle,
@@ -104,14 +104,14 @@ def get_reader_input_fn(data_paths, batch_size, shuffle, num_epochs=None):
 
 def get_estimator(train_root, args):
 
-  s1 = tf.contrib.layers.sparse_column_with_integerized_feature('str1', bucket_size=8+1) # bucket_size = vocab_size + unknown label
-  s2 = tf.contrib.layers.sparse_column_with_integerized_feature('str2', bucket_size=7+1)
-  s3 = tf.contrib.layers.sparse_column_with_integerized_feature('str3', bucket_size=7+1)
+  s1 = tf.contrib.layers.sparse_column_with_integerized_feature('str1ex', bucket_size=8+1) # bucket_size = vocab_size + unknown label
+  s2 = tf.contrib.layers.sparse_column_with_integerized_feature('str2ex', bucket_size=7+1)
+  s3 = tf.contrib.layers.sparse_column_with_integerized_feature('str3ex', bucket_size=7+1)
 
   feature_columns = [
-      tf.contrib.layers.real_valued_column('num1', dimension=1),
-      tf.contrib.layers.real_valued_column('num2', dimension=1),
-      tf.contrib.layers.real_valued_column('num3', dimension=1),
+      tf.contrib.layers.real_valued_column('num1ex', dimension=1),
+      tf.contrib.layers.real_valued_column('num2ex', dimension=1),
+      tf.contrib.layers.real_valued_column('num3ex', dimension=1),
       tf.contrib.layers.embedding_column(s1, 2),
       tf.contrib.layers.embedding_column(s2, 2),
       tf.contrib.layers.embedding_column(s3, 2),
@@ -141,9 +141,9 @@ def make_output_tensors(input_ops, model_fn_ops, keep_target=True):
   top_n=3
 
   outputs = {}
-  outputs['key'] = tf.squeeze(input_ops.features['key'])
+  outputs['keyex'] = tf.squeeze(input_ops.features['keyex'])
   if keep_target:
-      outputs['target_from_input'] = tf.squeeze(input_ops.features['target'])
+      outputs['target_from_inputex'] = tf.squeeze(input_ops.features['targetex'])
 
   # TODO(brandondutra): get the score of the target label too.
   probabilities = model_fn_ops.predictions['probabilities']
@@ -281,21 +281,21 @@ def get_experiment_fn(args):
     transformed_metadata = metadata_io.read_metadata(
         '../tfpreout/transformed_metadata')
     raw_metadata = metadata_io.read_metadata('../tfpreout/raw_metadata')
-    serving_input_fn = (
-        input_fn_maker.build_default_transforming_serving_input_fn(  #input json string
-            raw_metadata,
-            '../tfpreout/transform_fn',
-            raw_label_keys=['target']))    
     #serving_input_fn = (
-    #    input_fn_maker.build_parsing_transforming_serving_input_fn(  # input is tf.example string
+    #    input_fn_maker.build_default_transforming_serving_input_fn(  #input json string
     #        raw_metadata,
     #        '../tfpreout/transform_fn',
-    #        raw_label_keys=['target']))
-    export_strategy_notarget = tf.contrib.learn.utils.make_export_strategy(
-        serving_input_fn, exports_to_keep=5,
-        default_output_alternative_key=None)
+    #        raw_label_keys=['target']))    
+    serving_input_fn = (
+        input_fn_maker.build_parsing_transforming_serving_input_fn(  # input is tf.example string
+            raw_metadata,
+            '../tfpreout/transform_fn',
+            raw_label_keys=['target']))
+    #export_strategy_notarget = tf.contrib.learn.utils.make_export_strategy(
+    #    serving_input_fn, exports_to_keep=5,
+    #    default_output_alternative_key=None)
     export_strategy_target = my_make_export_strategy(serving_input_fn, keep_target=True, job_dir=args.job_dir)
-    #export_strategy_notarget = my_make_export_strategy(serving_input_fn, keep_target=False, job_dir=args.job_dir)
+    export_strategy_notarget = my_make_export_strategy(serving_input_fn, keep_target=False, job_dir=args.job_dir)
     #export_strategy = my_make_export_strategy(serving_input_fn, keep_target=True)
 
 

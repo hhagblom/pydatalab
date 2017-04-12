@@ -73,19 +73,19 @@ def local_predict(args):
   #u'key': u'Placeholder_6:0'}
 
 
-  feed_dict = {'Placeholder:0': [16.8, 6.82], 
-               'Placeholder_1:0': [15, 13], 
-               'Placeholder_2:0': [8.04, 3.93], 
-               'Placeholder_3:0': ['drone', 'train'], 
-               'Placeholder_4:0': ['pqr', 'jkl'], 
-               'Placeholder_5:0': ['blue', 'black'],
-               'Placeholder_6:0': [0, 1], 
+  feed_dict = {u'Placeholder:0': [16.8, 6.82], 
+               u'Placeholder_1:0': [15, 13], 
+               u'Placeholder_2:0': [8.04, 3.93], 
+               u'Placeholder_3:0': [u'drone', u'train'], 
+               u'Placeholder_4:0': [u'pqr', u'jkl'], 
+               u'Placeholder_5:0': [u'blue', u'black'],
+               u'Placeholder_6:0': ['0', '1'], 
   }
   #output_alias_map {u'key': u'Squeeze:0', u'top_n_score_1': u'Squeeze_2:0', u'top_n_score_3': u'Squeeze_6:0', u'top_n_score_2': u'Squeeze_4:0', u'top_n_label_1': u'Squeeze_1:0', u'top_n_label_3': u'Squeeze_5:0', u'top_n_label_2': u'Squeeze_3:0'}
 
   #output_alias_map {u'probabilities': u'predictions/probabilities:0', u'logits': u'dnn/logits/BiasAdd:0', u'classes': u'predictions/classes:0'
 
-  tensor_names = ['predictions/probabilities:0']
+  tensor_names = [u'predictions/probabilities:0']
   print('')
   print('feed_dict', feed_dict)
 

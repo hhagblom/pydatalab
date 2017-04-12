@@ -139,14 +139,14 @@ def make_preprocessing_fn():
           columns.
     """
     
-    result = {'key': inputs['key']}
-    result['target'] = tft.string_to_int(inputs['target'])
-    result['num1'] = tft.scale_to_0_1(inputs['num1'])
-    result['num2'] = tft.scale_to_0_1(inputs['num2'])
-    result['num3'] = tft.scale_to_0_1(inputs['num3'])
-    result['str1'] = tft.string_to_int(inputs['str1'])
-    result['str2'] = tft.string_to_int(inputs['str2'])
-    result['str3'] = tft.string_to_int(inputs['str3'])
+    result = {'keyex': inputs['key']}
+    result['targetex'] = tft.string_to_int(inputs['target'])
+    result['num1ex'] = tft.scale_to_0_1(inputs['num1'])
+    result['num2ex'] = tft.scale_to_0_1(inputs['num2'])
+    result['num3ex'] = tft.scale_to_0_1(inputs['num3'])
+    result['str1ex'] = tft.string_to_int(inputs['str1'])
+    result['str2ex'] = tft.string_to_int(inputs['str2'])
+    result['str3ex'] = tft.string_to_int(inputs['str3'])
     return result
 
   return preprocessing_fn
