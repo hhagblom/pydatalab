@@ -18,6 +18,7 @@ from __future__ import print_function
 
 import argparse
 import collections
+import csv
 import json
 import os
 import six
@@ -123,9 +124,6 @@ def run_local_analysis(args, schema, features):
   vocabs = collections.defaultdict(lambda: collections.defaultdict(int))
 
 
-  transforms_to_do = get_transforms_per_input_column(schema, features)
-  
-
   # for each file, update the numerical stats from that file, and update the set
   # of unique labels.
   for input_file in input_files:
@@ -134,22 +132,18 @@ def run_local_analysis(args, schema, features):
         parsed_line = dict(zip(header, line))
 
         for col_name in header:
-          if transforms_to_do[name] <= set(NUMERIC_TRANSFORMS):
-            aaa
-
-          elif transforms_to_do[name] <= set(CATEGORICAL_TRANSFORMS):
-
-          elif  transforms_to_do[name] <= set(TEXT_TRANSFORMS):
+          transform = features[col_name]['transform']
+          if transform in TEXT_TRANSFORMS:
             split_strings = parsed_line[col_name].split(' ')
 
             for one_label in split_strings:
               # Filter out empty strings
               if one_label:
                 # add the label to the dict and increase its count.
-                categorical_results[col_name][one_label] += 1
-          else:
-            # numerical column.
-
+                vocabs[col_name][one_label] += 1
+          elif transform in CATEGORICAL_TRANSFORMS:
+            vocabs[col_name][parsed_line[col_name]] += 1
+          elif transform in NUMERIC_TRANSFORMS:
             # if empty, skip
             if not parsed_line[col_name].strip():
               continue
@@ -164,13 +158,11 @@ def run_local_analysis(args, schema, features):
             numerical_results[col_name]['sum'] += float(parsed_line[col_name])
 
   # Update numerical_results to just have min/min/mean
-  for col_schema in schema_list:
-    if col_schema['type'].lower() != 'string':
-      col_name = col_schema['name']
-      mean = numerical_results[col_name]['sum'] / numerical_results[col_name]['count']
-      del numerical_results[col_name]['sum']
-      del numerical_results[col_name]['count']
-      numerical_results[col_name]['mean'] = mean
+  for col_name in numerical_results:
+    mean = numerical_results[col_name]['sum'] / numerical_results[col_name]['count']
+    del numerical_results[col_name]['sum']
+    del numerical_results[col_name]['count']
+    numerical_results[col_name]['mean'] = mean
 
   # Write the numerical_results to a json file.
   file_io.write_string_to_file(
@@ -178,7 +170,7 @@ def run_local_analysis(args, schema, features):
       json.dumps(numerical_results, indent=2, separators=(',', ': ')))
 
   # Write the vocab files. Each label is on its own line.
-  for name, label_count in six.iteritems(categorical_results):
+  for name, label_count in six.iteritems(vocabs):
     # Labels is now the string:
     # label1,count
     # label2,count
@@ -193,29 +185,20 @@ def run_local_analysis(args, schema, features):
         labels)
 
 
-
-def get_transforms_per_input_column(schema, features):
-  schema_name_to_transfrom = collections.defaultdict(set)
-  for _, transform in six.iteritems(features):
-    name = transform['source_column']
-    schema_name_to_transfrom[name].add(transform['transform'])
-
+def check_schema_transform_match(schema, features):
   for col_schema in schema:
     col_name = col_schema['name']
     col_type = col_schema['type'].lower()
+
+    transform = features[col_name]['transform']
     if col_type in NUMERIC_SCHEMA:
-      if not (schema_name_to_transfrom[col_name] <= set(NUMERIC_TRANSFORMS)):
-        raise ValueError('Numerical schema columns can only have numerical transformations')
+      if transform not in NUMERIC_TRANSFORMS:
+        raise ValueError('Transfrom %s not supported by schema %s' % (transform, col_type))
     elif col_type in STRING_SCHEMA:
-      if not (
-        (schema_name_to_transfrom[col_name] <= set(CATEGORICAL_TRANSFORMS))
-        or (schema_name_to_transfrom[col_name] <= set(TEXT_TRANSFORMS))):
-        raise ValueError('String schemas can exclusifly have categorical or text transformations')
+      if transform not in CATEGORICAL_TRANSFORMS + TEXT_TRANSFORMS:
+        raise ValueError('Transfrom %s not supported by schema %s' % (transform, col_type))
     else:
-      raise ValueError('Unknown schema type %s' col_type)
-
-  return schema_name_to_transfrom
-
+      raise ValueError('Unsupported schema type %s' % col_type)
 
 
 def expand_defaults(schema, features):
@@ -225,23 +208,12 @@ def expand_defaults(schema, features):
   in the featurs file. For these columns, add a default transformation based on
   the schema's type. The features dict is modified by this function call.
   """
-  # Update source_column values
-  for name, transform in six.iteritems(features):
-    if not transform.get('source_column', None):
-      transform['source_column'] = name
 
-  columns_used = {x['source_column'] for x in six.itervalues(features)}
   schema_names = [x['name'] for x in schema]
 
-  for source_column in columns_used:
+  for source_column in six.iterkeys(features):
     if source_column not in schema_names:
       raise ValueError('source column %s is not in the schema' % source_column)
-
-  for name, transform in six.iteritems(features):
-    if name in schema_names and name != transform['source_column']:
-      raise ValueError(('%s is a schema name and it differs from the '
-                        'source_column name %s') %
-                       (name, transform['source_column']))
 
   # Update default transformation based on schema. 
   for col_schema in schema:
@@ -252,14 +224,12 @@ def expand_defaults(schema, features):
       raise ValueError('Only the following schema types are supported: %s' 
                         % ' '.join(SUPPORTED_SCHEMA))
 
-    if schema_name not in columns_used:
+    if schema_name not in six.iterkeys(features):
       # add the default transform to the features
       if schema_type in NUMERIC_SCHEMA:
-        features[schema_name] = {'transform': NUMERIC_TRANSFORMS[0],
-                                 'source_column': schema_name}
+        features[schema_name] = {'transform': NUMERIC_TRANSFORMS[0]}
       elif schema_type in STRING_SCHEMA:
-        features[schema_name] = {'transform': CATEGORICAL_TRANSFORMS[0],
-                                 'source_column': schema_name}
+        features[schema_name] = {'transform': CATEGORICAL_TRANSFORMS[0]}
       else:
         raise NotImplementedError('Unknown type %s' % schema_type)      
 
@@ -275,7 +245,7 @@ def main(argv=None):
   features = json.loads(file_io.read_file_to_string(args.features_file))
 
   expand_defaults(schema, features) # features are updated.
-  
+  check_schema_transform_match(schema, features)
 
   if args.cloud:
     run_cloud_analysis(args, schema, features)
