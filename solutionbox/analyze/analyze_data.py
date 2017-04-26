@@ -24,8 +24,21 @@ import os
 import six
 import sys
 
+import pandas as pd
+
+
+import tensorflow_transform as tft
+import tensorflow as tf
 
 from tensorflow.python.lib.io import file_io
+from tensorflow.contrib import lookup
+
+from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import metadata_io
+from tensorflow_transform import impl_helper
+
+
 
 SCHEMA_FILE = 'schema.json'
 NUMERICAL_ANALYSIS_FILE = 'stats.json'
@@ -106,6 +119,255 @@ def parse_arguments(argv):
   return args
 
 
+def make_tft_input_schema(schema):
+  result = {}
+  for col_schema in schema:
+    col_type = col_schema['type'].lower()
+    col_name = col_schema['name']
+    if col_type in NUMERIC_SCHEMA:
+      result[col_name] = tf.FixedLenFeature(shape=[], dtype=tf.float32, default_value=0.0) #TODO(brandondutra) use average value
+    else:
+      result[col_name] = tf.FixedLenFeature(shape=[], dtype=tf.string, default_value='')
+
+  return dataset_schema.from_feature_spec(result)
+
+
+
+# Make Tensor In Tensor Out (TITO) fuctions
+def make_scale_tito(min_x_value, max_x_value, output_min, output_max):
+  def _scale(x):
+    return ((((x - min_x_value) * (output_max - output_min)) /
+            (max_x_value - min_x_value)) + output_min)
+
+  return _scale
+
+def make_map_to_int_tito(vocab, default_value):
+  def _map_to_int(x):
+    table = lookup.string_to_index_table_from_tensor(
+        vocab, num_oov_buckets=0,
+        default_value=default_value)
+    return table.lookup(x)
+  return _map_to_int
+
+def segment_indices(segment_ids, num_segments):
+  """Returns a tensor of indices within each segment.
+
+  segment_ids should be a sequence of non-decreasing non-negative integers that
+  define a set of segments, e.g. [0, 0, 1, 2, 2, 2] defines 3 segments of length
+  2, 1 and 3.  The return value is a tensor containing the indices within each
+  segment.
+
+  Example input: [0, 0, 1, 2, 2, 2]
+  Example output: [0, 1, 0, 0, 1, 2]
+
+  Args:
+    segment_ids: A 1-d tensor containing an non-decreasing sequence of
+        non-negative integers with type `tf.int32` or `tf.int64`.
+
+  Returns:
+    A tensor containing the indices within each segment.
+  """
+  segment_lengths = tf.unsorted_segment_sum(tf.ones_like(segment_ids), segment_ids, tf.to_int32(num_segments))
+  segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
+                             segment_ids)
+  return (tf.range(tf.size(segment_ids, out_type=segment_ids.dtype)) -
+          segment_starts)
+
+def get_term_count_per_doc(x, vocab_size):
+  """Creates a SparseTensor with 1s at every doc/term pair index.
+
+  Args:
+    x : a SparseTensor of int64 representing string indices in vocab.
+
+  Returns:
+    a SparseTensor with 1s at indices <doc_index_in_batch>,
+        <term_index_in_vocab> for every term/doc pair.
+  """
+  # Construct intermediary sparse tensor with indices
+  # [<doc>, <term_index_in_doc>, <vocab_id>] and tf.ones values.
+  split_indices = tf.to_int64(
+      tf.split(x.indices, axis=1, num_or_size_splits=2))
+  expanded_values = tf.to_int64(tf.expand_dims(x.values, 1))
+  next_index = tf.concat(
+      [split_indices[0], split_indices[1], expanded_values], axis=1)
+  next_values = tf.ones_like(x.values)
+  vocab_size_as_tensor = tf.constant([vocab_size], dtype=tf.int64)
+  next_shape = tf.concat(
+      [x.dense_shape, vocab_size_as_tensor], 0)
+  next_tensor = tf.SparseTensor(
+      indices=tf.to_int64(next_index),
+      values=next_values,
+      dense_shape=next_shape)
+  # Take the intermediar tensor and reduce over the term_index_in_doc
+  # dimension. This produces a tensor with indices [<doc_id>, <term_id>]
+  # and values [count_of_term_in_doc] and shape batch x vocab_size
+  term_count_per_doc = tf.sparse_reduce_sum_sparse(next_tensor, 1)
+  return term_count_per_doc
+
+
+def make_tfidf_tito(vocab, example_count, corpus_size, part):
+  """
+
+  Args:
+    vocab: list of strings. Must include '' in the list.
+    example_count: example_count[i] is the number of examples that contain the
+      token vocab[i]
+    corpus_size: how many examples there are.
+  """
+
+  def _get_tfidf_weights():
+    # Add one to the reduced term freqnencies to avoid dividing by zero.
+    idf = tf.log(tf.to_double(corpus_size) / (
+        1.0 + tf.to_double(reduced_term_freq)))
+
+    dense_doc_sizes = tf.to_double(tf.sparse_reduce_sum(tf.SparseTensor(
+        indices=sp.indices,
+        values=tf.ones_like(sp.values),
+        dense_shape=sp.dense_shape), 1))
+
+    # For every term in x, divide the idf by the doc size.
+    # The two gathers both result in shape <sum_doc_sizes>
+    idf_over_doc_size = (tf.gather(idf, sp.values) /
+                         tf.gather(dense_doc_sizes, sp.indices[:, 0]))
+
+    tfidf_weights = (tf.multiply(
+                            tf.gather(idf, term_count_per_doc.indices[:,1]),
+                            tf.to_double(term_count_per_doc.values))  /
+                         tf.gather(dense_doc_sizes, term_count_per_doc.indices[:, 0]))
+    tfidf_ids = term_count_per_doc.indices[:,1]
+
+  def _tfidf(x):
+    split = tf.string_split(x)
+    table = lookup.string_to_index_table_from_tensor(
+        vocab, num_oov_buckets=0,
+        default_value=len(vocab))
+    int_text = table.lookup(split)
+
+    #SparseTensorValue(indices=array([[0, 0],
+    #   [1, 0],
+    #   [1, 2],
+    #   [2, 1],
+    #   [3, 1]]), values=array([3, 2, 1, 1, 2], dtype=int32), dense_shape=array([4, 3]))
+    term_count_per_doc = get_term_count_per_doc(int_text, len(vocab)+1)
+
+    # Add one to the reduced term freqnencies to avoid dividing by zero.
+    example_count_with_oov = tf.concat([example_count, [0]], 0)
+    idf = tf.log(tf.to_double(corpus_size) / ( 1.0 + tf.to_double(example_count_with_oov)))
+
+    dense_doc_sizes = tf.to_double(tf.sparse_reduce_sum(tf.SparseTensor(
+        indices=int_text.indices,
+        values=tf.ones_like(int_text.values),
+        dense_shape=int_text.dense_shape), 1))
+
+    tfidf_weights = (tf.multiply(
+                        tf.gather(idf, term_count_per_doc.indices[:,1]),
+                        tf.to_double(term_count_per_doc.values))  /
+                     tf.gather(dense_doc_sizes, term_count_per_doc.indices[:, 0]))
+    #sess.run(tf.tables_initializer())
+    #print('dense_doc_sizes', dense_doc_sizes.eval())
+    #print('term_count_per_doc', term_count_per_doc.eval())
+    #print('tdf', idf.eval())
+    tfidf_ids = term_count_per_doc.indices[:,1]
+
+    indices = tf.stack([term_count_per_doc.indices[:,0], 
+                        segment_indices(term_count_per_doc.indices[:,0], int_text.dense_shape[0])],
+                       1)
+    dense_shape = term_count_per_doc.dense_shape
+
+    tfidf_st_weights = tf.SparseTensor(indices=indices, values=tfidf_weights, dense_shape=dense_shape)
+    tfidf_st_ids = tf.SparseTensor(indices=indices, values=tfidf_ids, dense_shape=dense_shape)            
+
+    if part == 'ids':
+      return tfidf_st_ids
+    else:
+      return tfidf_st_weights
+    #return [tfidf_st_weights, tfidf_st_ids]
+
+  return _tfidf
+
+def make_preprocessing_fn(args, features):
+  # Load the stats and vocab and pass it to the preprocessing_fn via closure
+  def preprocessing_fn(inputs):
+    """User defined preprocessing function for reddit columns.
+
+    Args:
+      inputs: dictionary of input `tensorflow_transform.Column`.
+    Returns:
+      A dictionary of `tensorflow_transform.Column` representing the transformed
+          columns.
+    """
+    stats = {}
+    if os.path.isfile(os.path.join(args.output_dir, NUMERICAL_ANALYSIS_FILE)):
+      stats = json.loads(file_io.read_file_to_string(os.path.join(args.output_dir, NUMERICAL_ANALYSIS_FILE)))
+
+    result = {}
+    for name, transform in six.iteritems(features):
+      transform_name = transform['transform']
+      if transform_name == 'identity':
+        result[name] = inputs[name]
+      elif transform_name == 'scale':          
+        result[name] = tft.map(
+            make_scale_tito(min_x_value=stats['column_stats'][name]['min'],
+                            max_x_value=stats['column_stats'][name]['max'],
+                            output_min=transform.get('value', 1)*(-1),
+                            output_max=transform.get('value', 1)),
+            inputs[name])
+      elif transform_name in ['one_hot', 'embedding', 'tfidf']:
+        vocab_str = file_io.read_file_to_string(os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % name))
+        vocab_pd = pd.read_csv(six.StringIO(vocab_str), header=None, names=['vocab', 'count'])
+        vocab = vocab_pd['vocab'].tolist()
+        ex_count = vocab_pd['count'].tolist()
+        
+        #if '' not in vocab:
+        #  vocab.append('')
+        #  ex_count.append(0)
+        #default_value = vocab.index('')
+
+        if transform_name == 'tfidf':
+          result[name + '_ids'] = tft.map(
+              make_tfidf_tito(vocab=vocab,
+                              example_count=ex_count,
+                              corpus_size=stats['num_examples'],
+                              part='ids'),
+              inputs[name])
+          result[name + '_weights'] = tft.map(
+              make_tfidf_tito(vocab=vocab,
+                              example_count=ex_count,
+                              corpus_size=stats['num_examples'],
+                              part='weights'),
+              inputs[name])          
+
+        else:
+          result[name] = tft.map(make_map_to_int_tito(vocab, len(vocab)),
+                                 inputs[name])
+      else:
+        raise ValueError('unknown transfrom %s' % transform_name)
+    return result
+
+  return preprocessing_fn  
+
+def make_transform_graph(args, schema, features):
+
+  tft_input_schema = make_tft_input_schema(schema)
+  tft_input_metadata = dataset_metadata.DatasetMetadata(schema=tft_input_schema)
+  preprocessing_fn = make_preprocessing_fn(args, features)
+
+
+  # copy from /tft/beam/impl
+  inputs, outputs = impl_helper.run_preprocessing_fn(preprocessing_fn, tft_input_schema)
+  output_metadata = dataset_metadata.DatasetMetadata(schema=impl_helper.infer_feature_schema(outputs))
+
+
+  transform_fn_dir = os.path.join(args.output_dir, 'transform_fn')
+
+  # This writes the SavedModel
+  input_columns_to_statistics = impl_helper.make_transform_fn_def(
+      tft_input_schema, inputs, outputs, transform_fn_dir)
+
+  metadata_io.write_metadata(output_metadata, os.path.join(args.output_dir, 'transformed_metadata'))
+  metadata_io.write_metadata(tft_input_metadata, os.path.join(args.output_dir, 'raw_metadata'))
+
+
 def run_cloud_analysis(args, schema, features):
   pass
 
@@ -123,26 +385,28 @@ def run_local_analysis(args, schema, features):
   numerical_results = collections.defaultdict(_init_numerical_results)
   vocabs = collections.defaultdict(lambda: collections.defaultdict(int))
 
-
+  num_examples = 0
   # for each file, update the numerical stats from that file, and update the set
   # of unique labels.
   for input_file in input_files:
     with file_io.FileIO(input_file, 'r') as f:
       for line in csv.reader(f):
         parsed_line = dict(zip(header, line))
+        num_examples += 1
 
         for col_name in header:
           transform = features[col_name]['transform']
           if transform in TEXT_TRANSFORMS:
             split_strings = parsed_line[col_name].split(' ')
 
-            for one_label in split_strings:
+            for one_label in set(split_strings):
               # Filter out empty strings
               if one_label:
                 # add the label to the dict and increase its count.
                 vocabs[col_name][one_label] += 1
           elif transform in CATEGORICAL_TRANSFORMS:
-            vocabs[col_name][parsed_line[col_name]] += 1
+            if parsed_line[col_name]:
+              vocabs[col_name][parsed_line[col_name]] += 1
           elif transform in NUMERIC_TRANSFORMS:
             # if empty, skip
             if not parsed_line[col_name].strip():
@@ -165,9 +429,10 @@ def run_local_analysis(args, schema, features):
     numerical_results[col_name]['mean'] = mean
 
   # Write the numerical_results to a json file.
+  stats = { 'column_stats': numerical_results, 'num_examples': num_examples}
   file_io.write_string_to_file(
       os.path.join(args.output_dir, NUMERICAL_ANALYSIS_FILE),
-      json.dumps(numerical_results, indent=2, separators=(',', ': ')))
+      json.dumps(stats, indent=2, separators=(',', ': ')))
 
   # Write the vocab files. Each label is on its own line.
   for name, label_count in six.iteritems(vocabs):
@@ -181,7 +446,7 @@ def run_local_analysis(args, schema, features):
                                                    key=lambda x: x[1],
                                                    reverse=True)])
     file_io.write_string_to_file(
-        os.path.join(args.output_dir, CATEGORICAL_ANALYSIS_FILE % name),
+        os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % name),
         labels)
 
 
@@ -252,7 +517,7 @@ def main(argv=None):
   else:
     run_local_analysis(args, schema, features)
 
-  #make_transform_graph(args, schema, features)
+  make_transform_graph(args, schema, features)
 
 
 if __name__ == '__main__':
