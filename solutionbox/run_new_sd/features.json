@@ -1,0 +1,1 @@
+{"text": {"transform": "bag_of_words"}, "target": {"transform": "target"}, "key": {"transform": "key"}}

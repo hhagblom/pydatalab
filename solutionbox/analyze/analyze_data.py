@@ -49,6 +49,9 @@ NUMERIC_TRANSFORMS = ['identity', 'scale']
 CATEGORICAL_TRANSFORMS = ['one_hot', 'embedding']
 TEXT_TRANSFORMS = ['bag_of_words', 'tfidf']
 
+KEY_TRANSFORM = 'key'
+TARGET_TRANSFORM = 'target'
+
  
 NUMERIC_SCHEMA = ['integer', 'float']
 STRING_SCHEMA  = ['string']
@@ -337,6 +340,16 @@ def make_preprocessing_fn(args, features):
     result = {}
     for name, transform in six.iteritems(features):
       transform_name = transform['transform']
+
+      if transform_name == KEY_TRANSFORM:
+        transform_name = 'identity'
+      elif transform_name == TARGET_TRANSFORM:
+        if os.path.isfile(os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % name)):
+          transform_name = 'one_hot'
+        else:
+          transform_name = 'identity'
+
+
       if transform_name == 'identity':
         result[name] = inputs[name]
       elif transform_name == 'scale':          
@@ -380,8 +393,10 @@ def make_preprocessing_fn(args, features):
         else:
           result[name] = tft.map(make_map_to_int_tito(vocab, len(vocab)),
                                  inputs[name])
+      elif transform_name == KEY_TRANSFORM:
+          result[name] = tft.map(make_identity_tito(), inputs[name])
       else:
-        raise ValueError('unknown transfrom %s' % transform_name)
+        raise ValueError('unknown transform %s' % transform_name)
     return result
 
   return preprocessing_fn  
@@ -414,7 +429,7 @@ def run_cloud_analysis(args, schema, features):
 
 def run_local_analysis(args, schema, features):
   header = [column['name'] for column in schema]
-  input_files = file_io.get_matching_files(args.csv_file_pattern)
+  input_files = file_io.get_matching_files(os.path.abspath(args.csv_file_pattern))
 
   # initialize the results
   def _init_numerical_results():
@@ -428,21 +443,35 @@ def run_local_analysis(args, schema, features):
   num_examples = 0
   # for each file, update the numerical stats from that file, and update the set
   # of unique labels.
+  print(args)
+  print(input_files)
   for input_file in input_files:
     with file_io.FileIO(input_file, 'r') as f:
       for line in csv.reader(f):
         parsed_line = dict(zip(header, line))
         num_examples += 1
 
-        for col_name in header:
+        for col_schema in schema:
+          col_name = col_schema['name']
+          col_type = col_schema['type'].lower()
           transform = features[col_name]['transform']
+
+          if transform == TARGET_TRANSFORM:
+            if col_type in STRING_SCHEMA:
+              transform = CATEGORICAL_TRANSFORMS[0]
+            elif col_type in NUMERIC_SCHEMA:
+              transform = NUMERIC_TRANSFORMS[0]
+            else:
+              raise ValueError('Unknown schema type')
+
+
           if transform in TEXT_TRANSFORMS:
             split_strings = parsed_line[col_name].split(' ')
 
+            # If a label is in the row N times, increase it's vocab count by 1.
             for one_label in set(split_strings):
               # Filter out empty strings
               if one_label:
-                # add the label to the dict and increase its count.
                 vocabs[col_name][one_label] += 1
           elif transform in CATEGORICAL_TRANSFORMS:
             if parsed_line[col_name]:
@@ -460,6 +489,8 @@ def run_local_analysis(args, schema, features):
                   float(parsed_line[col_name])))
             numerical_results[col_name]['count'] += 1
             numerical_results[col_name]['sum'] += float(parsed_line[col_name])
+          elif transform == KEY_TRANSFORM:
+            pass
           else:
             raise ValueError('Unknown transform %s' % transform)
 
@@ -493,25 +524,38 @@ def run_local_analysis(args, schema, features):
 
 
 def check_schema_transform_match(schema, features):
+  num_key_transforms = 0
+  num_target_transforms = 0
+
   for col_schema in schema:
     col_name = col_schema['name']
     col_type = col_schema['type'].lower()
 
     transform = features[col_name]['transform']
+    if transform == KEY_TRANSFORM:
+      num_key_transforms  += 1
+      continue
+    elif transform == TARGET_TRANSFORM:
+      num_target_transforms += 1
+      continue
+
     if col_type in NUMERIC_SCHEMA:
       if transform not in NUMERIC_TRANSFORMS:
-        raise ValueError('Transfrom %s not supported by schema %s' % (transform, col_type))
+        raise ValueError('Transform %s not supported by schema %s' % (transform, col_type))
     elif col_type in STRING_SCHEMA:
       if transform not in CATEGORICAL_TRANSFORMS + TEXT_TRANSFORMS:
-        raise ValueError('Transfrom %s not supported by schema %s' % (transform, col_type))
+        raise ValueError('Transform %s not supported by schema %s' % (transform, col_type))
     else:
       raise ValueError('Unsupported schema type %s' % col_type)
+
+  if num_key_transforms != 1 or num_target_transforms != 1:
+    raise ValueError('Must have exactly one key and target transform')
 
 
 def expand_defaults(schema, features):
   """Add to features any default transformations.
 
-  Not every column in the schema has an explicit feature transfromation listed
+  Not every column in the schema has an explicit feature transformation listed
   in the featurs file. For these columns, add a default transformation based on
   the schema's type. The features dict is modified by this function call.
   """
