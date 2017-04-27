@@ -47,7 +47,7 @@ VOCAB_ANALYSIS_FILE = 'vocab_%s.csv'
 
 NUMERIC_TRANSFORMS = ['identity', 'scale']
 CATEGORICAL_TRANSFORMS = ['one_hot', 'embedding']
-TEXT_TRANSFORMS = ['bag_of_words']
+TEXT_TRANSFORMS = ['bag_of_words', 'tfidf']
 
  
 NUMERIC_SCHEMA = ['integer', 'float']
@@ -285,6 +285,40 @@ def make_tfidf_tito(vocab, example_count, corpus_size, part):
 
   return _tfidf
 
+def make_bag_of_words_tito(vocab, part):
+  def _bow(x):
+    split = tf.string_split(x)
+    table = lookup.string_to_index_table_from_tensor(
+        vocab, num_oov_buckets=0,
+        default_value=len(vocab))
+    int_text = table.lookup(split)
+
+    #SparseTensorValue(indices=array([[0, 0],
+    #   [1, 0],
+    #   [1, 2],
+    #   [2, 1],
+    #   [3, 1]]), values=array([3, 2, 1, 1, 2], dtype=int32), dense_shape=array([4, 3]))
+    term_count_per_doc = get_term_count_per_doc(int_text, len(vocab)+1)
+
+    bow_weights = term_count_per_doc.values
+    bow_ids = term_count_per_doc.indices[:,1]
+
+    indices = tf.stack([term_count_per_doc.indices[:,0], 
+                        segment_indices(term_count_per_doc.indices[:,0], int_text.dense_shape[0])],
+                       1)
+    dense_shape = term_count_per_doc.dense_shape
+
+    bow_st_weights = tf.SparseTensor(indices=indices, values=bow_weights, dense_shape=dense_shape)
+    bow_st_ids = tf.SparseTensor(indices=indices, values=bow_ids, dense_shape=dense_shape)            
+
+    if part == 'ids':
+      return bow_st_ids
+    else:
+      return bow_st_weights
+    #return [tfidf_st_weights, tfidf_st_ids]
+
+  return _bow
+
 def make_preprocessing_fn(args, features):
   # Load the stats and vocab and pass it to the preprocessing_fn via closure
   def preprocessing_fn(inputs):
@@ -312,7 +346,7 @@ def make_preprocessing_fn(args, features):
                             output_min=transform.get('value', 1)*(-1),
                             output_max=transform.get('value', 1)),
             inputs[name])
-      elif transform_name in ['one_hot', 'embedding', 'tfidf']:
+      elif transform_name in ['one_hot', 'embedding', 'tfidf', 'bag_of_words']:
         vocab_str = file_io.read_file_to_string(os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % name))
         vocab_pd = pd.read_csv(six.StringIO(vocab_str), header=None, names=['vocab', 'count'])
         vocab = vocab_pd['vocab'].tolist()
@@ -336,7 +370,13 @@ def make_preprocessing_fn(args, features):
                               corpus_size=stats['num_examples'],
                               part='weights'),
               inputs[name])          
-
+        elif transform_name == 'bag_of_words':
+          result[name + '_ids'] = tft.map(
+              make_bag_of_words_tito(vocab=vocab, part='ids'),
+              inputs[name])
+          result[name + '_weights'] = tft.map(
+              make_bag_of_words_tito(vocab=vocab, part='weights'),
+              inputs[name])          
         else:
           result[name] = tft.map(make_map_to_int_tito(vocab, len(vocab)),
                                  inputs[name])
@@ -420,6 +460,8 @@ def run_local_analysis(args, schema, features):
                   float(parsed_line[col_name])))
             numerical_results[col_name]['count'] += 1
             numerical_results[col_name]['sum'] += float(parsed_line[col_name])
+          else:
+            raise ValueError('Unknown transform %s' % transform)
 
   # Update numerical_results to just have min/min/mean
   for col_name in numerical_results:

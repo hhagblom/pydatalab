@@ -137,10 +137,10 @@ class TestLocalAnalyze(unittest.TestCase):
     output_folder = tempfile.mkdtemp()
     input_file_path = tempfile.mkstemp(dir=output_folder)[1]
     try:
-      vocab = ['red,car', 'red,truck', 'red,van', 'blue,bike', 'blue,train', 'green,airplane']
+      csv_file = ['red,car', 'red,truck', 'red,van', 'blue,bike', 'blue,train', 'green,airplane']
       file_io.write_string_to_file(
         input_file_path,
-        '\n'.join(vocab))
+        '\n'.join(csv_file))
 
       analyze_data.run_local_analysis(
         self.Args(input_file_path, output_folder),
@@ -168,21 +168,26 @@ class TestLocalAnalyze(unittest.TestCase):
     output_folder = tempfile.mkdtemp()
     input_file_path = tempfile.mkstemp(dir=output_folder)[1]
     try:
-      vocab = ['the quick brown fox', 'quick   brown brown chicken']
+      csv_file = ['the quick brown fox,raining in kir', 'quick   brown brown chicken,raining in pdx']
       file_io.write_string_to_file(
         input_file_path,
-        '\n'.join(vocab))
+        '\n'.join(csv_file))
 
       analyze_data.run_local_analysis(
         self.Args(input_file_path, output_folder),
-        [{'name': 'col1', 'type': 'STRING'}],
-        {'col1': {'transform': 'bag_of_words'}})
+        [{'name': 'col1', 'type': 'STRING'}, {'name': 'col2', 'type': 'STRING'}],
+        {'col1': {'transform': 'bag_of_words'},
+         'col2': {'transform': 'tfidf'}})
 
       vocab_str = file_io.read_file_to_string(os.path.join(output_folder, analyze_data.VOCAB_ANALYSIS_FILE % 'col1'))
       vocab = pd.read_csv(six.StringIO(vocab_str), header=None, names=['col1', 'count'])
-
-      self.assertItemsEqual(vocab['col1'].tolist(), ['the', 'quick', 'brown', 'fox', 'chicken'])
+      self.assertEqual(vocab['col1'].tolist(), ['quick', 'brown', 'the', 'fox', 'chicken'])
       self.assertEqual(vocab['count'].tolist(), [2, 2, 1, 1, 1])
+
+      vocab_str = file_io.read_file_to_string(os.path.join(output_folder, analyze_data.VOCAB_ANALYSIS_FILE % 'col2'))
+      vocab = pd.read_csv(six.StringIO(vocab_str), header=None, names=['col2', 'count'])
+      self.assertEqual(vocab['col2'].tolist(), ['raining', 'in', 'pdx', 'kir'])
+      self.assertEqual(vocab['count'].tolist(), [2, 2, 1, 1])      
     finally:
       shutil.rmtree(output_folder)
 
@@ -344,6 +349,60 @@ class TestGraphBuilding(unittest.TestCase):
           math.log(4.0), # doc 5
           1.0/2.0 * math.log(4.0/3.0), 1.0/2.0 * math.log(4.0)] # doc 6
       
+      self.assertEqual(results['cat1_weights'].indices.tolist(), expected_indices)
+      self.assertEqual(results['cat1_weights'].dense_shape.tolist(), [7, 4])
+      self.assertEqual(results['cat1_weights'].values.size, len(expected_weights))
+      for weight, expected_weight in zip(results['cat1_weights'].values.tolist(), expected_weights):
+        self.assertAlmostEqual(weight, expected_weight)
+
+    finally:
+      shutil.rmtree(output_folder)
+
+
+  def test_make_transform_graph_text_bag_of_words(self):
+    output_folder = tempfile.mkdtemp()
+    try:
+      # vocab  id
+      # red    0
+      # blue   1
+      # green  2
+      # oov    3 (out of vocab)
+      file_io.write_string_to_file(
+          os.path.join(output_folder, analyze_data.VOCAB_ANALYSIS_FILE % 'cat1'),
+          '\n'.join(['red,x', 'blue,y', 'green,z']))
+
+      analyze_data.make_transform_graph(
+        self.Args(output_folder),
+        [{'name': 'cat1', 'type': 'STRING'}], 
+        {'cat1': {'transform': 'bag_of_words'}})
+
+      model_path = os.path.join(output_folder, 'transform_fn')
+      self.assertTrue(os.path.isfile(os.path.join(model_path, 'saved_model.pb')))
+
+      results = self._run_graph(
+          model_path, 
+          {'cat1': ['red red red',   # doc 0
+                    'red green red', # doc 1
+                    'blue',          # doc 2
+                    'blue blue',     # doc 3
+                    '',              # doc 4
+                    'brown',         # doc 5
+                    'brown blue']})  # doc 6
+
+      # indices are in the form [doc id, vocab id]
+      expected_indices = [[0, 0],
+                          [1, 0], [1, 1], 
+                          [2, 0], 
+                          [3, 0], 
+                          [5, 0],
+                          [6, 0], [6, 1]]
+      #                   0  1  1  2  3  5  6  6                
+      expected_ids =     [0, 0, 2, 1, 1, 3, 1, 3] # Note in doc 6, it is blue, then brown.
+      expected_weights = [3, 2, 1, 1, 2, 1, 1, 1]
+      self.assertEqual(results['cat1_ids'].indices.tolist(), expected_indices)
+      self.assertEqual(results['cat1_ids'].dense_shape.tolist(), [7, 4])
+      self.assertEqual(results['cat1_ids'].values.tolist(), expected_ids)
+
       self.assertEqual(results['cat1_weights'].indices.tolist(), expected_indices)
       self.assertEqual(results['cat1_weights'].dense_shape.tolist(), [7, 4])
       self.assertEqual(results['cat1_weights'].values.size, len(expected_weights))
