@@ -127,7 +127,9 @@ def make_tft_input_schema(schema):
   for col_schema in schema:
     col_type = col_schema['type'].lower()
     col_name = col_schema['name']
-    if col_type in NUMERIC_SCHEMA:
+    if col_type == 'integer':
+      result[col_name] = tf.FixedLenFeature(shape=[], dtype=tf.int64, default_value=0) #TODO(brandondutra) use average value
+    elif col_type == 'float':
       result[col_name] = tf.FixedLenFeature(shape=[], dtype=tf.float32, default_value=0.0) #TODO(brandondutra) use average value
     else:
       result[col_name] = tf.FixedLenFeature(shape=[], dtype=tf.string, default_value='')
@@ -303,7 +305,7 @@ def make_bag_of_words_tito(vocab, part):
     #   [3, 1]]), values=array([3, 2, 1, 1, 2], dtype=int32), dense_shape=array([4, 3]))
     term_count_per_doc = get_term_count_per_doc(int_text, len(vocab)+1)
 
-    bow_weights = term_count_per_doc.values
+    bow_weights = tf.to_float(term_count_per_doc.values)
     bow_ids = term_count_per_doc.indices[:,1]
 
     indices = tf.stack([term_count_per_doc.indices[:,0], 
@@ -601,9 +603,20 @@ def main(argv=None):
   if args.cloud:
     run_cloud_analysis(args, schema, features)
   else:
+    if not os.path.isdir(args.output_dir):
+      os.makedirs(args.output_dir)
     run_local_analysis(args, schema, features)
 
   make_transform_graph(args, schema, features)
+
+  # Save a copy of the schema and features in the output folder
+  file_io.write_string_to_file(
+    os.path.join(args.output_dir, 'schema.json'),
+    json.dumps(schema, indent=2))
+
+  file_io.write_string_to_file(
+    os.path.join(args.output_dir, 'features.json'),
+    json.dumps(features, indent=2))
 
 
 if __name__ == '__main__':
