@@ -141,8 +141,12 @@ def make_tft_input_schema(schema):
 # Make Tensor In Tensor Out (TITO) fuctions
 def make_scale_tito(min_x_value, max_x_value, output_min, output_max):
   def _scale(x):
-    return ((((x - min_x_value) * (output_max - output_min)) /
-            (max_x_value - min_x_value)) + output_min)
+    min_x_valuef = tf.to_float(min_x_value)
+    max_x_valuef = tf.to_float(max_x_value)
+    output_minf = tf.to_float(output_min)
+    output_maxf = tf.to_float(output_max)
+    return ((((tf.to_float(x) - min_x_valuef) * (output_maxf - output_minf)) /
+            (max_x_valuef - min_x_valuef)) + output_minf)
 
   return _scale
 
@@ -445,8 +449,6 @@ def run_local_analysis(args, schema, features):
   num_examples = 0
   # for each file, update the numerical stats from that file, and update the set
   # of unique labels.
-  print(args)
-  print(input_files)
   for input_file in input_files:
     with file_io.FileIO(input_file, 'r') as f:
       for line in csv.reader(f):

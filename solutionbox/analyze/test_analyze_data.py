@@ -230,7 +230,7 @@ class TestGraphBuilding(unittest.TestCase):
       analyze_data.make_transform_graph(
         self.Args(output_folder),
         [{'name': 'num1', 'type': 'FLOAT'},
-         {'name': 'num2', 'type': 'INTEGER'},
+         {'name': 'num2', 'type': 'FLOAT'},
          {'name': 'num3', 'type': 'INTEGER'}],
         {'num1': {'transform': 'identity'},
          'num2': {'transform': 'scale', 'value': 10},
@@ -242,7 +242,7 @@ class TestGraphBuilding(unittest.TestCase):
 
       results = self._run_graph(model_path, {'num1': [5, 10, 15],
                                              'num2': [-1, 1, 0.5],
-                                             'num3': [10, 5, 7.5]})
+                                             'num3': [10, 5, 7]})
 
       for result, expected_result in zip(results['num1'].tolist(), [5, 10, 15]):
         self.assertAlmostEqual(result, expected_result)
@@ -251,7 +251,7 @@ class TestGraphBuilding(unittest.TestCase):
                                         [-10, 10, 5]):
         self.assertAlmostEqual(result, expected_result)
 
-      for result, expected_result in zip(results['num3'].tolist(), [1, -1, 0]):
+      for result, expected_result in zip(results['num3'].tolist(), [1, -1, (7.0-5)*2/5.0-1]):
         self.assertAlmostEqual(result, expected_result)        
     finally:
       shutil.rmtree(output_folder)
