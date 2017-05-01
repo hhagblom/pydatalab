@@ -41,6 +41,7 @@ from tensorflow_transform import impl_helper
 
 
 SCHEMA_FILE = 'schema.json'
+FEATURES_FILE = 'features.json'
 NUMERICAL_ANALYSIS_FILE = 'stats.json'
 VOCAB_ANALYSIS_FILE = 'vocab_%s.csv'
 
@@ -56,6 +57,9 @@ TARGET_TRANSFORM = 'target'
 NUMERIC_SCHEMA = ['integer', 'float']
 STRING_SCHEMA  = ['string']
 SUPPORTED_SCHEMA = NUMERIC_SCHEMA + STRING_SCHEMA
+
+TRANSFORMED_METADATA = 'transformed_metadata'
+RAW_METADATA = 'raw_metadata'
 
 def parse_arguments(argv):
   """Parse command line arguments.
@@ -425,8 +429,8 @@ def make_transform_graph(args, schema, features):
   input_columns_to_statistics = impl_helper.make_transform_fn_def(
       tft_input_schema, inputs, outputs, transform_fn_dir)
 
-  metadata_io.write_metadata(output_metadata, os.path.join(args.output_dir, 'transformed_metadata'))
-  metadata_io.write_metadata(tft_input_metadata, os.path.join(args.output_dir, 'raw_metadata'))
+  metadata_io.write_metadata(output_metadata, os.path.join(args.output_dir, TRANSFORMED_METADATA))
+  metadata_io.write_metadata(tft_input_metadata, os.path.join(args.output_dir, RAW_METADATA))
 
 
 def run_cloud_analysis(args, schema, features):
@@ -613,11 +617,11 @@ def main(argv=None):
 
   # Save a copy of the schema and features in the output folder
   file_io.write_string_to_file(
-    os.path.join(args.output_dir, 'schema.json'),
+    os.path.join(args.output_dir, SCHEMA_FILE),
     json.dumps(schema, indent=2))
 
   file_io.write_string_to_file(
-    os.path.join(args.output_dir, 'features.json'),
+    os.path.join(args.output_dir, FEATURES_FILE),
     json.dumps(features, indent=2))
 
 
