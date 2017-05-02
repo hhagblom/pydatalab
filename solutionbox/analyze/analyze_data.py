@@ -135,12 +135,6 @@ def parse_arguments(argv):
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
-def make_identity_tito(x):
-  def _id(x):
-    return tf.identity(x)
-  return _id
-
-
 def make_scale_tito(min_x_value, max_x_value, output_min, output_max):
   def _scale(x):
     min_x_valuef = tf.to_float(min_x_value)
@@ -325,6 +319,11 @@ def make_bag_of_words_tito(vocab, part):
 
   return _bow
 
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# end of Tensor In Tensor Out (TITO) fuctions
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 def make_preprocessing_fn(args, features):
   def preprocessing_fn(inputs):
@@ -338,7 +337,9 @@ def make_preprocessing_fn(args, features):
     """
     stats = {}
     if os.path.isfile(os.path.join(args.output_dir, STATS_FILE)):
-      stats = json.loads(file_io.read_file_to_string(os.path.join(args.output_dir, STATS_FILE)))
+      stats = json.loads(
+          file_io.read_file_to_string(
+              os.path.join(args.output_dir, STATS_FILE)).decode())
 
     result = {}
     for name, transform in six.iteritems(features):
@@ -395,7 +396,7 @@ def make_preprocessing_fn(args, features):
           result[name] = tft.map(make_str_to_int_tito(vocab, len(vocab)),
                                  inputs[name])
       elif transform_name == KEY_TRANSFORM:
-          result[name] = tft.map(make_identity_tito(), inputs[name])
+          result[name] = inputs[name]
       else:
         raise ValueError('unknown transform %s' % transform_name)
     return result
@@ -418,7 +419,8 @@ def make_tft_input_schema(schema, args):
   stats = {}
   if file_io.file_exists(os.path.join(args.output_dir, STATS_FILE)):
     stats = json.loads(
-        file_io.read_file_to_string(os.path.join(args.output_dir, STATS_FILE)))
+        file_io.read_file_to_string(
+            os.path.join(args.output_dir, STATS_FILE)).decode())
 
   for col_schema in schema:
     col_type = col_schema['type'].lower()
@@ -482,8 +484,56 @@ def make_transform_graph(args, schema, features):
       path=os.path.join(args.output_dir, RAW_METADATA_DIR))
 
 
-def run_cloud_analysis(args, schema, features):
+def execute_sql(sql, table, args):
   pass
+
+def run_cloud_analysis(args, schema, features):
+  import google.datalab.bigquery as bq
+  if args.bigquery_table:
+    table = bq.Table(args.bigquery_table)
+  else:
+    table = bq.ExternalDataSource(
+        source=args.input_file_pattern,
+        schema=bq.Schema(schema))
+
+  numerical_results = collections.defaultdict(_init_numerical_results)
+  vocabs = collections.defaultdict(lambda: collections.defaultdict(int))
+
+  for col_schema in schema:
+    col_name = col_schema['name']
+    col_type = col_schema['type'].lower()
+    transform = features[col_name]['transform']
+
+    # Map the target transfrom into one_hot or identity.
+    if transform == TARGET_TRANSFORM:
+      if col_type == STRING_SCHEMA:
+        transform = ONE_HOT_TRANSFORM
+      elif col_type in NUMERIC_SCHEMA:
+        transform = IDENTITY_TRANSFORM
+      else:
+        raise ValueError('Unknown schema type')
+
+    if transform in TEXT_TRANSFORMS:
+      # get vocab, number of rows that have word, split on space.
+      # remove null. save to file
+      pass
+    elif transform in CATEGORICAL_TRANSFORMS:
+      # get unique on column, remove null. save to file.
+      pass
+    elif transform in NUMERIC_TRANSFORMS:
+      # get min/max/average. Save to dict.
+      pass
+    elif transform == KEY_TRANSFORM:
+      pass
+    else:
+      raise ValueError('Unknown transform %s' % transform)    
+
+
+  # get numexamples
+  num_examples = 0
+
+  # Write the stats file.
+
 
 
 def run_local_analysis(args, schema, features):
@@ -680,11 +730,13 @@ def main(argv=None):
   args = parse_arguments(sys.argv if argv is None else argv)
 
   if args.csv_schema_file:
-    schema = json.loads(file_io.read_file_to_string(args.csv_schema_file))
+    schema = json.loads(
+        file_io.read_file_to_string(args.csv_schema_file).decode())
   else:
     import google.datalab.bigquery as bq
     schema = bq.Table(args.bigquery_table).schema._bq_schema
-  features = json.loads(file_io.read_file_to_string(args.features_file))
+  features = json.loads(
+      file_io.read_file_to_string(args.features_file).decode())
 
   expand_defaults(schema, features)  # features are updated.
   check_schema_transform_match(schema, features)

@@ -110,8 +110,8 @@ class TestLocalAnalyze(unittest.TestCase):
         {'col1': {'transform': 'scale'},
          'col2': {'transform': 'identity'}})
       stats = json.loads(
-          file_io.read_file_to_string(os.path.join(output_folder,
-                                                   analyze_data.STATS_FILE)))
+          file_io.read_file_to_string(
+              os.path.join(output_folder, analyze_data.STATS_FILE)).decode())
       self.assertEqual(
           stats,
           {u'column_stats':
