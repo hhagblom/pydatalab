@@ -1,0 +1,14 @@
+[
+  {
+    "type": "INTEGER", 
+    "name": "key"
+  }, 
+  {
+    "type": "STRING", 
+    "name": "target"
+  }, 
+  {
+    "type": "STRING", 
+    "name": "text"
+  }
+]

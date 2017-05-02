@@ -325,6 +325,7 @@ def make_bag_of_words_tito(vocab, part):
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
+
 def make_preprocessing_fn(args, features):
   def preprocessing_fn(inputs):
     """TFT preprocessing function.
@@ -484,20 +485,27 @@ def make_transform_graph(args, schema, features):
       path=os.path.join(args.output_dir, RAW_METADATA_DIR))
 
 
-def execute_sql(sql, table, args):
-  pass
+def execute_sql(sql, table):
+  import google.datalab.bigquery as bq
+  if isinstance(table, bq.ExternalDataSource):
+    query = bq.Query(sql, data_sources={'csv_table': table})
+  else:
+    query = bq.Query(sql)
+  return query.execute().result().to_dataframe()
+
 
 def run_cloud_analysis(args, schema, features):
   import google.datalab.bigquery as bq
   if args.bigquery_table:
-    table = bq.Table(args.bigquery_table)
+    table_name = '`%s`' % args.bigquery_table
+    table = None
   else:
+    table_name = 'csv_table'
     table = bq.ExternalDataSource(
-        source=args.input_file_pattern,
+        source=args.csv_file_pattern,
         schema=bq.Schema(schema))
 
-  numerical_results = collections.defaultdict(_init_numerical_results)
-  vocabs = collections.defaultdict(lambda: collections.defaultdict(int))
+  numerical_vocab_stats = {}
 
   for col_schema in schema:
     col_name = col_schema['name']
@@ -513,27 +521,75 @@ def run_cloud_analysis(args, schema, features):
       else:
         raise ValueError('Unknown schema type')
 
-    if transform in TEXT_TRANSFORMS:
-      # get vocab, number of rows that have word, split on space.
-      # remove null. save to file
-      pass
-    elif transform in CATEGORICAL_TRANSFORMS:
-      # get unique on column, remove null. save to file.
-      pass
+    if transform in (TEXT_TRANSFORMS + CATEGORICAL_TRANSFORMS):
+      if transform in TEXT_TRANSFORMS:
+        # Split strings on space, then extract labels and how many rows each
+        # token is in. This is done by making two temp tables:
+        #   SplitTable: each text row is made into an array of strings. The
+        #       array may contain repeat tokens
+        #   TokenTable: SplitTable with repeated tokens removed per row.
+        # Then to flatten the arrays, TokenTable has to be joined with itself.
+        # See the sections 'Flattening Arrays' and 'Filtering Arrays' at
+        # https://cloud.google.com/bigquery/docs/reference/standard-sql/arrays
+        sql = ('WITH SplitTable AS '
+               '         (SELECT split({name}, \' \') as token_array FROM {table}), '
+               '     TokenTable AS '
+               '         (SELECT ARRAY(SELECT DISTINCT x '
+               '                       FROM UNNEST(token_array) AS x) AS unique_tokens_per_row '
+               '          FROM SplitTable) '
+               'SELECT token, count(token) as token_count '
+               'FROM TokenTable '
+               'CROSS JOIN unnest(TokenTable.unique_tokens_per_row) as token '
+               'WHERE length(token) > 0 '
+               'GROUP BY token '
+               'ORDER BY token_count DESC, token ASC').format(name=col_name,
+                                                              table=table_name)
+      else:
+        # Extract label and frequency
+        sql = ('SELECT {name} as token, count(*) as count '
+               'FROM {table} '
+               'WHERE {name} IS NOT NULL '
+               'GROUP BY {name} '
+               'ORDER BY count DESC, token ASC').format(name=col_name,
+                                                        table=table_name)
+
+      df = execute_sql(sql, table)
+
+      # Save the vocab
+      string_buff = six.StringIO()
+      df.to_csv(string_buff, index=False, header=False)
+      file_io.write_string_to_file(
+          os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % col_name),
+          string_buff.getvalue())
+      numerical_vocab_stats[col_name] = {'vocab_size': len(df)}
+
+      # free memeory
+      del string_buff
+      del df
     elif transform in NUMERIC_TRANSFORMS:
-      # get min/max/average. Save to dict.
-      pass
+      # get min/max/average
+      sql = ('SELECT max({name}) as max_value, min({name}) as min_value, '
+             'avg({name}) as avg_value from {table}').format(name=col_name,
+                                                             table=table_name)
+      df = execute_sql(sql, table)
+      numerical_vocab_stats[col_name] = {'min': df.iloc[0]['min_value'],
+                                         'max': df.iloc[0]['max_value'],
+                                         'mean': df.iloc[0]['avg_value']}
     elif transform == KEY_TRANSFORM:
       pass
     else:
-      raise ValueError('Unknown transform %s' % transform)    
+      raise ValueError('Unknown transform %s' % transform)
 
-
-  # get numexamples
-  num_examples = 0
+  # get num examples
+  sql = 'SELECT count(*) as num_examples from {table}'.format(table=table_name)
+  df = execute_sql(sql, table)
+  num_examples = df.iloc[0]['num_examples']
 
   # Write the stats file.
-
+  stats = {'column_stats': numerical_vocab_stats, 'num_examples': num_examples}
+  file_io.write_string_to_file(
+      os.path.join(args.output_dir, STATS_FILE),
+      json.dumps(stats, indent=2, separators=(',', ': ')))
 
 
 def run_local_analysis(args, schema, features):
@@ -740,6 +796,8 @@ def main(argv=None):
 
   expand_defaults(schema, features)  # features are updated.
   check_schema_transform_match(schema, features)
+
+  file_io.recursive_create_dir(args.output_dir)
 
   if args.cloud:
     run_cloud_analysis(args, schema, features)
