@@ -102,7 +102,7 @@ def parse_arguments(argv):
   parser.add_argument('--bigquery-table',
                       type=str,
                       required=False,
-                      help=('project:dataset.table_name'))
+                      help=('project.dataset.table_name'))
 
   parser.add_argument('--features-file',
                       type=str,
@@ -369,9 +369,10 @@ def make_preprocessing_fn(args, features):
             os.path.join(args.output_dir, VOCAB_ANALYSIS_FILE % name))
         vocab_pd = pd.read_csv(six.StringIO(vocab_str),
                                header=None,
-                               names=['vocab', 'count'])
+                               names=['vocab', 'count'],
+                               dtype=str)  # Prevent pd from converting numerical categories.
         vocab = vocab_pd['vocab'].tolist()
-        ex_count = vocab_pd['count'].tolist()
+        ex_count = vocab_pd['count'].astype(int).tolist()
 
         if transform_name == TFIDF_TRANSFORM:
           result[name + '_ids'] = tft.map(
