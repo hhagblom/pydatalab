@@ -17,18 +17,22 @@ from __future__ import print_function
 
 import argparse
 import os
+import pandas as pd
 import re
+import six
 import sys
 import multiprocessing
 import json
 
 
 import tensorflow as tf
+from tensorflow.python.framework import dtypes
 
 from tensorflow.contrib.learn.python.learn import learn_runner
 from tensorflow.python.lib.io import file_io
 
 from tensorflow_transform.saved import input_fn_maker
+from tensorflow_transform.tf_metadata import metadata_io
 
 
 # Files
@@ -56,10 +60,6 @@ NUMERIC_TRANSFORMS = [IDENTITY_TRANSFORM, SCALE_TRANSFORM]
 CATEGORICAL_TRANSFORMS = [ONE_HOT_TRANSFORM, EMBEDDING_TRANSFROM]
 TEXT_TRANSFORMS = [BOW_TRANSFORM, TFIDF_TRANSFORM]
 
-TRANSFORMED_METADATA_DIR = 'transformed_metadata'
-RAW_METADATA_DIR = 'raw_metadata'
-TRANSFORM_FN_DIR = 'transform_fn'
-
 def parse_arguments(argv):
   """Parse the command line arguments."""
   parser = argparse.ArgumentParser(
@@ -68,9 +68,9 @@ def parse_arguments(argv):
                    'should be used. '))
 
   # I/O file parameters
-  parser.add_argument('--train-data-paths', type=str, action='append',
+  parser.add_argument('--train-data-paths', type=str,
                       required=True)
-  parser.add_argument('--eval-data-paths', type=str, action='append',
+  parser.add_argument('--eval-data-paths', type=str,
                       required=True)
   parser.add_argument('--job-dir', type=str, required=True)
   parser.add_argument('--analysis-output-dir',
@@ -200,22 +200,26 @@ def build_feature_columns(features, stats, model_type):
             bucket_size=stats['column_stats'][name]['vocab_size'])
         new_feature = tf.contrib.layers.embedding_column(
             sparse,
-            dimension=transform_config['embedding_dim'])
+            dimension=transform['embedding_dim'])
       else:
         new_feature = tf.contrib.layers.sparse_column_with_hash_bucket(
             name,
-            hash_bucket_size=transform_config['embedding_dim'])
+            hash_bucket_size=transform['embedding_dim'],
+            dtype=dtypes.int64)
     elif transform_name in TEXT_TRANSFORMS:
       sparse_ids = tf.contrib.layers.sparse_column_with_integerized_feature(
           name + '_ids',
           bucket_size=stats['column_stats'][name]['vocab_size'])
       sparse_weights =  tf.contrib.layers.weighted_sparse_column(
-          sparse_ids, 
-          name + '_weights')
+          sparse_id_column=sparse_ids, 
+          weight_column_name=name + '_weights',
+          dtype=dtypes.float32)
       if _is_dnn_model:
         new_feature = sparse_weights # TODO(brandondutra): is this correct? or need one-hot?
       else:
         new_feature = sparse_weights
+    elif transform_name == TARGET_TRANSFORM or transform_name == KEY_TRANSFORM:
+      continue
     else:
       raise ValueError('Unknown transfrom %s' % transform_name)
 
@@ -363,7 +367,7 @@ def get_experiment_fn(args):
 
 
     transformed_metadata = metadata_io.read_metadata(
-        os.path.join(args.analysis_output_dir, TRANSFORMED_METADATA))
+        os.path.join(args.analysis_output_dir, TRANSFORMED_METADATA_DIR))
     input_reader_for_train = input_fn_maker.build_training_input_fn(
         metadata=transformed_metadata,
         file_pattern=args.train_data_paths,

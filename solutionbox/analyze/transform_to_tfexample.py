@@ -102,15 +102,15 @@ def parse_arguments(argv):
       help=('Google Cloud Storage or Local directory in which '
             'to place outputs.'))
 
+  feature_parser = parser.add_mutually_exclusive_group(required=False)
+  feature_parser.add_argument('--target', dest='target', action='store_true')
+  feature_parser.add_argument('--no-target', dest='target', action='store_false')
+  parser.set_defaults(target=True)
+
   parser.add_argument(
       '--shuffle',
       action='store_true',
       default=False)
-
-  target_parser = parser.add_mutually_exclusive_group(required=False)
-  target_parser.add_argument('--target', dest='target', action='store_true')
-  target_parser.add_argument('--no-target', dest='target', action='store_false')
-  parser.set_defaults(target=True)
 
   args, _ = parser.parse_known_args(args=argv[1:])
 
@@ -169,16 +169,18 @@ def preprocess(pipeline, args):
   features = json.loads(file_io.read_file_to_string(
       os.path.join(args.analyze_output_dir, FEATURES_FILE)).decode())
 
-  column_names = []
-  for col_schema in schema:
-    name = col_schema['name']
-    if args.target:
-      column_names.append(name)
-    elif features[name]['transform'] != TARGET_TRANSFORM:
-      column_names.append(name)
+  column_names = [col['name'] for col in schema]
+
+  exclude_outputs = None
+  if not args.target:
+    for name, transform in six.iteritems(features):
+      if transform['transform'] == TARGET_TRANSFORM:
+        target_name = name
+        column_names.remove(target_name)
+        exclude_outputs = [target_name]
+        del input_metadata.schema.column_schemas[target_name]
 
   if args.csv_file_pattern:
-    print(column_names)
     coder = coders.CsvCoder(column_names, input_metadata.schema, delimiter=',')
     raw_data = (
         pipeline
@@ -209,7 +211,8 @@ def preprocess(pipeline, args):
 
   (transformed_data, transform_metadata) = (
       ((raw_data, input_metadata), transform_fn)
-      | 'ApplyTensorflowPreprocessingGraph' >> tft.TransformDataset())
+      | 'ApplyTensorflowPreprocessingGraph' 
+      >> tft.TransformDataset(exclude_outputs))
 
   tfexample_coder = coders.ExampleProtoCoder(transform_metadata.schema)
   _ = (transformed_data

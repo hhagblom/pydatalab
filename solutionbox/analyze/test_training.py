@@ -177,24 +177,30 @@ class TestTrainer(unittest.TestCase):
     cmd = ['python transform_to_tfexample.py',
            '--csv-file-pattern=' + self._csv_train_filename,
            '--analyze-output-dir=' + self._analysis_output,
-           '--output-filename-prefix=featrues_train',
+           '--output-filename-prefix=features_train',
            '--output-dir=' + self._transform_output,
-           '--shuffle',
-           '--target']
+           '--shuffle']
     subprocess.check_call(' '.join(cmd), shell=True)
    
     cmd = ['python transform_to_tfexample.py',
            '--csv-file-pattern=' + self._csv_eval_filename,
            '--analyze-output-dir=' + self._analysis_output,
-           '--output-filename-prefix=featrues_eval',
-           '--output-dir=' + self._transform_output,
-           '--target']
+           '--output-filename-prefix=features_eval',
+           '--output-dir=' + self._transform_output]
     subprocess.check_call(' '.join(cmd), shell=True)   
 
     cmd = ['python transform_to_tfexample.py',
            '--csv-file-pattern=' + self._csv_predict_filename,
            '--analyze-output-dir=' + self._analysis_output,
-           '--output-filename-prefix=featrues_predict',
+           '--output-filename-prefix=features_transformed_predict',
+           '--output-dir=' + self._transform_output,
+           '--no-target']
+    subprocess.check_call(' '.join(cmd), shell=True) 
+
+    cmd = ['python csv_to_tfexample.py',
+           '--csv-file-pattern=' + self._csv_predict_filename,
+           '--analyze-output-dir=' + self._analysis_output,
+           '--output-filename-prefix=features_predict',
            '--output-dir=' + self._transform_output,
            '--no-target']
     subprocess.check_call(' '.join(cmd), shell=True) 
@@ -208,14 +214,26 @@ class TestTrainer(unittest.TestCase):
       transform: JSON object of the transforms file.
       extra_args: list of strings to pass to the trainer.
     """
-    pass
+    cmd = ['python -m trainer.task',
+           '--train-data-paths=' + os.path.join(self._transform_output, 'features_train*'),
+           '--eval-data-paths=' +  os.path.join(self._transform_output, 'features_eval*'),
+           '--job-dir=' +  self._train_output,
+           '--analysis-output-dir=' + self._analysis_output,
+           '--model-type=%s_%s' % (model_type, problem_type),
+           '--train-batch-size=100',
+           '--eval-batch-size=100',
+           '--top-n=3',
+           '--max-steps=2500'] + extra_args
 
+    print('gong to run')
+    print(' '.join(cmd))
+    subprocess.check_call(' '.join(cmd), shell=True)
 
   
   def testClassificationLinear(self):
     self._logger.debug('\n\nTesting classification Linear')
 
-    problem_type='classification',
+    problem_type='classification'
     model_type='linear'
     self._run_analyze(problem_type)
     self._run_transform()
