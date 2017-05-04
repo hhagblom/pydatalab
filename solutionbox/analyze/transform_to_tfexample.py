@@ -178,6 +178,7 @@ def preprocess(pipeline, args):
       column_names.append(name)
 
   if args.csv_file_pattern:
+    print(column_names)
     coder = coders.CsvCoder(column_names, input_metadata.schema, delimiter=',')
     raw_data = (
         pipeline
@@ -199,7 +200,7 @@ def preprocess(pipeline, args):
       >> beam.Map(prepare_image_transforms, features))
 
   if args.shuffle:
-    raw_data = raw_data | 'ShuffleData' > shuffle()
+    raw_data = raw_data | 'ShuffleData' >> shuffle()
 
   transform_fn = (
       pipeline

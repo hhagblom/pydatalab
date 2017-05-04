@@ -595,7 +595,7 @@ class TestGraphBuilding(unittest.TestCase):
       file_io.write_string_to_file(
           os.path.join(output_folder,
                        analyze_data.VOCAB_ANALYSIS_FILE % 'cat1'),
-          '\n'.join(['red,x', 'blue,y', 'green,z']))
+          '\n'.join(['red,2', 'blue,2', 'green,1']))
 
       analyze_data.make_transform_graph(
         self.Args(output_folder),

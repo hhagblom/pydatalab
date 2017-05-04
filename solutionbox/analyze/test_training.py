@@ -125,6 +125,7 @@ class TestTrainer(unittest.TestCase):
 
     self._csv_train_filename = os.path.join(self._test_dir, 'train_csv_data.csv')
     self._csv_eval_filename = os.path.join(self._test_dir, 'eval_csv_data.csv')
+    self._csv_predict_filename = os.path.join(self._test_dir, 'predict_csv_data.csv')
     self._schema_filename = os.path.join(self._test_dir, 'schema_file.json')
     self._features_filename = os.path.join(self._test_dir, 'features_file.json')
 
@@ -161,6 +162,7 @@ class TestTrainer(unittest.TestCase):
 
     make_csv_data(self._csv_train_filename, 200, problem_type, True)
     make_csv_data(self._csv_eval_filename, 100, problem_type, True)
+    make_csv_data(self._csv_predict_filename, 100, problem_type, False)
 
     cmd = ['python analyze_data.py',
            '--output-dir=' + self._analysis_output,
@@ -172,7 +174,30 @@ class TestTrainer(unittest.TestCase):
     subprocess.check_call(' '.join(cmd), shell=True)
 
   def _run_transform(self):
-    pass
+    cmd = ['python transform_to_tfexample.py',
+           '--csv-file-pattern=' + self._csv_train_filename,
+           '--analyze-output-dir=' + self._analysis_output,
+           '--output-filename-prefix=featrues_train',
+           '--output-dir=' + self._transform_output,
+           '--shuffle',
+           '--target']
+    subprocess.check_call(' '.join(cmd), shell=True)
+   
+    cmd = ['python transform_to_tfexample.py',
+           '--csv-file-pattern=' + self._csv_eval_filename,
+           '--analyze-output-dir=' + self._analysis_output,
+           '--output-filename-prefix=featrues_eval',
+           '--output-dir=' + self._transform_output,
+           '--target']
+    subprocess.check_call(' '.join(cmd), shell=True)   
+
+    cmd = ['python transform_to_tfexample.py',
+           '--csv-file-pattern=' + self._csv_predict_filename,
+           '--analyze-output-dir=' + self._analysis_output,
+           '--output-filename-prefix=featrues_predict',
+           '--output-dir=' + self._transform_output,
+           '--no-target']
+    subprocess.check_call(' '.join(cmd), shell=True) 
 
   def _run_training(self, problem_type, model_type, extra_args=[]):
     """Runs training.
