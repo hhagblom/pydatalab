@@ -252,17 +252,17 @@ def make_tfidf_tito(vocab, example_count, corpus_size, part):
     term_count_per_doc = get_term_count_per_doc(int_text, len(vocab) + 1)
 
     # Add one to the reduced term freqnencies to avoid dividing by zero.
-    example_count_with_oov = tf.to_double(tf.concat([example_count, [0]], 0))
-    idf = tf.log(tf.to_double(corpus_size) / (1.0 + example_count_with_oov))
+    example_count_with_oov = tf.to_float(tf.concat([example_count, [0]], 0))
+    idf = tf.log(tf.to_float(corpus_size) / (1.0 + example_count_with_oov))
 
-    dense_doc_sizes = tf.to_double(tf.sparse_reduce_sum(tf.SparseTensor(
+    dense_doc_sizes = tf.to_float(tf.sparse_reduce_sum(tf.SparseTensor(
         indices=int_text.indices,
         values=tf.ones_like(int_text.values),
         dense_shape=int_text.dense_shape), 1))
 
     idf_times_term_count = tf.multiply(
         tf.gather(idf, term_count_per_doc.indices[:, 1]),
-        tf.to_double(term_count_per_doc.values))
+        tf.to_float(term_count_per_doc.values))
     tfidf_weights = (
         idf_times_term_count / tf.gather(dense_doc_sizes,
                                          term_count_per_doc.indices[:, 0]))

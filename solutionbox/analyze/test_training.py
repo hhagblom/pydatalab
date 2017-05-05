@@ -250,7 +250,7 @@ class TestTrainer(unittest.TestCase):
            '--max-steps=2500',
            '--run-transforms'] + extra_args
 
-    print('gong to run')
+    print('gong to run\n\n\n\n')
     print(' '.join(cmd))
     subprocess.check_call(' '.join(cmd), shell=True)
 
@@ -263,8 +263,8 @@ class TestTrainer(unittest.TestCase):
     self._run_analyze(problem_type)
     self._run_transform()
 
-    self._run_training(problem_type='classification',
-                       model_type='linear')
+    #self._run_training(problem_type='classification',
+    #                   model_type='linear')
     self._run_training_raw(problem_type='classification',
                        model_type='linear')
 

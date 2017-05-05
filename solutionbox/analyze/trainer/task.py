@@ -220,7 +220,8 @@ def build_feature_columns(features, stats, model_type):
       sparse_weights =  tf.contrib.layers.weighted_sparse_column(
           sparse_id_column=sparse_ids, 
           weight_column_name=name + '_weights',
-          dtype=dtypes.float32)
+          #dtype=dtypes.float32
+          )
       if _is_dnn_model:
         new_feature = sparse_weights # TODO(brandondutra): is this correct? or need one-hot?
       else:
@@ -331,24 +332,17 @@ def build_csv_transforming_training_input_fn(raw_metadata,
 
     record_defaults = []
     for k in raw_keys:
-      print('default_value', k, column_schemas[k].representation.default_value, type(column_schemas[k].representation.default_value))
       if column_schemas[k].representation.default_value is not None:
-        # Note that the default_value could be 'false' value like  '', 0
+        # Note that the default_value could be 'false' value like  '' or 0
         value = tf.constant([column_schemas[k].representation.default_value],
                             dtype=column_schemas[k].domain.dtype)
       else:
         value = tf.constant([], dtype=column_schemas[k].domain.dtype)
       record_defaults.append(value)
 
-    print('raw_keys', raw_keys)
-    print('record_defaults', record_defaults)
-    print('batch_csv_lines', batch_csv_lines)
-    #batch_csv_lines = tf.Print(batch_csv_lines, [batch_csv_lines])
-
     parsed_tensors  = tf.decode_csv(batch_csv_lines, record_defaults, name='csv_to_tensors')
 
     raw_data = {k: v for k, v in zip(raw_keys, parsed_tensors)}
-    print(raw_data)
 
     transformed_data = saved_transform_io.apply_saved_transform(
         transform_savedmodel_dir, raw_data)
