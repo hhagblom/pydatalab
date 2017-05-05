@@ -229,6 +229,31 @@ class TestTrainer(unittest.TestCase):
     print(' '.join(cmd))
     subprocess.check_call(' '.join(cmd), shell=True)
 
+  def _run_training_raw(self, problem_type, model_type, extra_args=[]):
+    """Runs training.
+
+    Args:
+      problem_type: 'regression' or 'classification'
+      model_type: 'linear' or 'dnn'
+      transform: JSON object of the transforms file.
+      extra_args: list of strings to pass to the trainer.
+    """
+    cmd = ['python -m trainer.task',
+           '--train-data-paths=' + self._csv_train_filename,
+           '--eval-data-paths=' +  self._csv_eval_filename,
+           '--job-dir=' +  self._train_output + '_raw',
+           '--analysis-output-dir=' + self._analysis_output,
+           '--model-type=%s_%s' % (model_type, problem_type),
+           '--train-batch-size=100',
+           '--eval-batch-size=100',
+           '--top-n=3',
+           '--max-steps=2500',
+           '--run-transforms'] + extra_args
+
+    print('gong to run')
+    print(' '.join(cmd))
+    subprocess.check_call(' '.join(cmd), shell=True)
+
   
   def testClassificationLinear(self):
     self._logger.debug('\n\nTesting classification Linear')
@@ -240,7 +265,8 @@ class TestTrainer(unittest.TestCase):
 
     self._run_training(problem_type='classification',
                        model_type='linear')
-
+    self._run_training_raw(problem_type='classification',
+                       model_type='linear')
 
 
 if __name__ == '__main__':

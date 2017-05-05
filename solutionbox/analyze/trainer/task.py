@@ -324,20 +324,26 @@ def build_csv_transforming_training_input_fn(raw_metadata,
     else:
       batch_csv_id, batch_csv_lines = tf.train.batch(
           tensors=[csv_id, csv_lines],
-          batch_size=batch_size,
+          batch_size=training_batch_size,
           capacity=queue_capacity,
           enqueue_many=True,
           num_threads=reader_num_threads)
 
     record_defaults = []
     for k in raw_keys:
-      if column_schemas[k].representation.default_value:
+      print('default_value', k, column_schemas[k].representation.default_value, type(column_schemas[k].representation.default_value))
+      if column_schemas[k].representation.default_value is not None:
+        # Note that the default_value could be 'false' value like  '', 0
         value = tf.constant([column_schemas[k].representation.default_value],
                             dtype=column_schemas[k].domain.dtype)
       else:
         value = tf.constant([], dtype=column_schemas[k].domain.dtype)
       record_defaults.append(value)
 
+    print('raw_keys', raw_keys)
+    print('record_defaults', record_defaults)
+    print('batch_csv_lines', batch_csv_lines)
+    #batch_csv_lines = tf.Print(batch_csv_lines, [batch_csv_lines])
 
     parsed_tensors  = tf.decode_csv(batch_csv_lines, record_defaults, name='csv_to_tensors')
 
@@ -474,9 +480,8 @@ def get_experiment_fn(args):
 
     target_column_name = None
     key_column_name = None
-    header_names = []
+    header_names = [col['name'] for col in schema]
     for name, transform in six.iteritems(features):
-      header_names.append(name)
       if transform['transform'] == TARGET_TRANSFORM:
         target_column_name = name
       elif transform['transform'] == KEY_TRANSFORM:
