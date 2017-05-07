@@ -498,7 +498,7 @@ def make_export_strategy(
             field_delim=",",
             convert_scalars_to_vectors=True)()
       elif input_format == 'tfex':
-        raise NotImplementedError('tfex')
+        raise NotImplmentedError('tfx')
       else:
         raise ValueError('Unknown input_format parameter value')
 
@@ -852,24 +852,20 @@ def get_experiment_fn(args):
     additional_assets = {FEATURES_FILE: features_file_path,
                          SCHEMA_FILE: schema_file_path}
 
-    export_strategy_tfex_target = make_export_strategy(
+    export_strategy_csv_notarget = make_export_strategy(
+        args=args,
+        input_format='csv',
+        keep_target=False,
+        assets_extra=additional_assets,
+        features=features,
+        schema=schema)
+    export_strategy_csv_target = make_export_strategy(
         args=args,
         input_format='csv',
         keep_target=True,
         assets_extra=additional_assets,
         features=features,
         schema=schema)
-    #export_strategy_target = util.make_export_strategy(
-    #    train_config=train_config,
-    #    args=args,
-    #    keep_target=True,
-    #    assets_extra=additional_assets)
-    #export_strategy_notarget = util.make_export_strategy(
-    #    train_config=train_config,
-    #    args=args,
-    #    keep_target=False,
-    #    assets_extra=additional_assets)
-
     
     transformed_metadata = metadata_io.read_metadata(
         os.path.join(args.analysis_output_dir, TRANSFORMED_METADATA_DIR))
@@ -935,7 +931,7 @@ def get_experiment_fn(args):
         train_input_fn=input_reader_for_train,
         eval_input_fn=input_reader_for_eval,
         train_steps=args.max_steps,
-        export_strategies=[export_strategy_tfex_target],
+        export_strategies=[export_strategy_csv_notarget, export_strategy_csv_target],
         min_eval_frequency=args.min_eval_frequency,
         eval_steps=None,
     )
